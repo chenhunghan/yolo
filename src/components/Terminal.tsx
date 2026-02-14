@@ -2,7 +2,12 @@ import { useEffect, useRef } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import init, { FrankenTermWeb } from "../wasm/frankenterm-web/FrankenTerm";
 
-export function Terminal() {
+interface SessionInfo {
+  id: string;
+  alive: boolean;
+}
+
+export function Terminal({ sessionId = "default", cwd }: { sessionId?: string; cwd?: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<FrankenTermWeb | null>(null);
@@ -58,17 +63,31 @@ export function Terminal() {
         for (let i = 0; i < replies.length; i++) {
           const chunk = replies[i] as Uint8Array;
           if (chunk.length > 0) {
-            invoke("write_pty", { data: Array.from(chunk) });
+            invoke("write_pty", { sessionId, data: Array.from(chunk) });
           }
         }
       };
 
-      // 4. Spawn shell on the Rust side
-      await invoke("spawn_shell", {
-        cols: currentCols,
-        rows: currentRows,
-        onData,
-      });
+      // 4. Check if session already exists (survives Vite HMR)
+      const sessions: SessionInfo[] = await invoke("list_sessions");
+      const existing = sessions.find((s) => s.id === sessionId && s.alive);
+
+      if (existing) {
+        await invoke("attach_shell", {
+          sessionId,
+          cols: currentCols,
+          rows: currentRows,
+          onData,
+        });
+      } else {
+        await invoke("spawn_shell", {
+          sessionId,
+          cols: currentCols,
+          rows: currentRows,
+          onData,
+          cwd: cwd ?? null,
+        });
+      }
 
       // 5. Render loop
       const renderLoop = () => {
@@ -85,6 +104,9 @@ export function Terminal() {
       // Selection state for mouse-based text selection
       let selectionStart = -1;
       let selecting = false;
+
+      // Skip flushing focus event to PTY on initial attach (prevents ^[[I on startup)
+      let skipFocusFlush = true;
 
       // 6. Keyboard input -> PTY stdin
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -109,7 +131,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       const handleKeyUp = (e: KeyboardEvent) => {
@@ -124,7 +146,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       // 7. Mouse input (with text selection)
@@ -146,7 +168,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       const handleMouseUp = (e: MouseEvent) => {
@@ -163,7 +185,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       const handleMouseMove = (e: MouseEvent) => {
@@ -183,7 +205,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       const handleWheel = (e: WheelEvent) => {
@@ -199,7 +221,7 @@ export function Terminal() {
           altKey: e.altKey,
           metaKey: e.metaKey,
         });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       // 8. Paste
@@ -207,25 +229,27 @@ export function Terminal() {
         const text = e.clipboardData?.getData("text");
         if (text) {
           term.pasteText(text);
-          flushInputBytes(term);
+          flushInputBytes(term, sessionId);
         }
       };
 
       // 9. Focus/blur
       const handleFocus = () => {
         term.input({ kind: "focus", focused: true });
-        flushInputBytes(term);
+        if (skipFocusFlush) {
+          skipFocusFlush = false;
+          // Drain the focus escape sequence but don't send to PTY
+          term.drainEncodedInputBytes();
+          return;
+        }
+        flushInputBytes(term, sessionId);
       };
       const handleBlur = () => {
         term.input({ kind: "focus", focused: false });
-        flushInputBytes(term);
+        flushInputBytes(term, sessionId);
       };
 
       // 10. Container resize -> refit grid
-      // Debounce everything (fitToContainer + resize_pty) so the engine grid
-      // only resizes once. The canvas stretches naturally during drag (it's
-      // width:100% height:100%) and snaps to the correct cell grid when done.
-      // This prevents progressive content loss from repeated scrollback pushes.
       let resizeTimer = 0;
       const observer = new ResizeObserver(() => {
         if (disposed) return;
@@ -243,6 +267,7 @@ export function Terminal() {
               currentCols = geometry.cols;
               currentRows = geometry.rows;
               invoke("resize_pty", {
+                sessionId,
                 cols: currentCols,
                 rows: currentRows,
               });
@@ -276,10 +301,12 @@ export function Terminal() {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafRef.current);
+      // Detach channel but keep the PTY alive (survives HMR)
+      invoke("detach_shell", { sessionId });
       termRef.current?.destroy();
       termRef.current = null;
     };
-  }, []);
+  }, [sessionId, cwd]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: "100%", overflow: "hidden" }}>
@@ -299,12 +326,12 @@ export function Terminal() {
   );
 }
 
-function flushInputBytes(term: FrankenTermWeb) {
+function flushInputBytes(term: FrankenTermWeb, sessionId: string) {
   const chunks = term.drainEncodedInputBytes();
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i] as Uint8Array;
     if (chunk.length > 0) {
-      invoke("write_pty", { data: Array.from(chunk) });
+      invoke("write_pty", { sessionId, data: Array.from(chunk) });
     }
   }
 }
