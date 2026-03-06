@@ -1,0 +1,1076 @@
+use serde::{Deserialize, Serialize};
+use sysinfo::System;
+
+/// Helper function to skip serializing empty Vec<Option> fields
+fn skip_vec_none<T>(vec: &Option<Vec<T>>) -> bool {
+    match vec {
+        Some(v) => v.is_empty(),
+        None => true,
+    }
+}
+
+/// Image configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Image {
+    /// Image location (URL or file path)
+    pub location: String,
+    /// Architecture (e.g., "aarch64", "x86_64")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
+    /// Digest for image verification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+}
+
+/// Rosetta configuration for running x86_64 binaries on ARM hosts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RosettaConfig {
+    /// Whether Rosetta is enabled
+    pub enabled: bool,
+    /// Whether to register Rosetta as a binfmt handler
+    pub binfmt: bool,
+}
+
+/// Represents a complete Lima configuration file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LimaConfig {
+    /// Minimum version of Lima required (e.g., "2.0.0")
+    #[serde(rename = "minimumLimaVersion", skip_serializing_if = "Option::is_none")]
+    pub minimum_lima_version: Option<String>,
+    /// VM type (e.g., "vz", "qemu", "krunkit")
+    #[serde(rename = "vmType", skip_serializing_if = "Option::is_none")]
+    pub vm_type: Option<String>,
+    /// Rosetta configuration for x86_64 emulation on ARM hosts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rosetta: Option<RosettaConfig>,
+    /// CPU configuration (e.g., 4)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<u32>,
+    /// Memory configuration (e.g., "4GiB", "8GB")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
+    /// Disk configuration (e.g., "100GiB", "50GiB")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk: Option<String>,
+    /// Image configurations
+    /// e.g.
+    /// - location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    ///   arch: "aarch64"
+    #[serde(skip_serializing_if = "skip_vec_none")]
+    pub images: Option<Vec<Image>>,
+    /// Mount points configuration
+    /// e.g.
+    /// - location: "~"
+    ///   mountPoint: "/mnt/shared"
+    ///   writable: true
+    #[serde(skip_serializing_if = "skip_vec_none")]
+    pub mounts: Option<Vec<Mount>>,
+    /// Containerd configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub containerd: Option<ContainerdConfig>,
+    /// Provisioning scripts
+    #[serde(skip_serializing_if = "skip_vec_none")]
+    pub provision: Option<Vec<Provision>>,
+    /// Health probes
+    #[serde(skip_serializing_if = "skip_vec_none")]
+    pub probes: Option<Vec<Probe>>,
+    /// Files to copy from guest to host
+    #[serde(rename = "copyToHost", skip_serializing_if = "skip_vec_none")]
+    pub copy_to_host: Option<Vec<CopyToHost>>,
+    /// Port forwarding configuration
+    #[serde(rename = "portForwards", skip_serializing_if = "skip_vec_none")]
+    pub port_forwards: Option<Vec<PortForward>>,
+}
+
+/// Mount configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Mount {
+    /// Mount point location (optional, defaults to inferred)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    /// Mount point on the host
+    #[serde(rename = "mountPoint", skip_serializing_if = "Option::is_none")]
+    pub mount_point: Option<String>,
+    /// Whether mount is writable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writable: Option<bool>,
+}
+
+/// Containerd configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerdConfig {
+    /// Whether to install system-wide containerd
+    pub system: bool,
+    /// Whether to configure user-specific containerd
+    pub user: bool,
+}
+
+/// Provisioning configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Provision {
+    /// Provision mode: "system", "user", or "dependency"
+    pub mode: String,
+    /// Provisioning script
+    pub script: String,
+}
+
+/// Health probe configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Probe {
+    /// Probe description
+    pub description: String,
+    /// Probe script to execute
+    pub script: String,
+    /// Hint to display if probe fails
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+/// File copy from guest to host
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopyToHost {
+    /// Path in the guest VM
+    pub guest: String,
+    /// Path on the host (may contain template variables)
+    pub host: String,
+    /// Whether to delete file on VM stop
+    #[serde(rename = "deleteOnStop", skip_serializing_if = "Option::is_none")]
+    pub delete_on_stop: Option<bool>,
+}
+
+/// Port forwarding configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortForward {
+    /// Whether guest IP must be zero
+    #[serde(rename = "guestIPMustBeZero", skip_serializing_if = "Option::is_none")]
+    pub guest_ip_must_be_zero: Option<bool>,
+    /// Guest IP address (optional)
+    #[serde(rename = "guestIP", skip_serializing_if = "Option::is_none")]
+    pub guest_ip: Option<String>,
+    /// Guest port (optional when using socket)
+    #[serde(rename = "guestPort", skip_serializing_if = "Option::is_none")]
+    pub guest_port: Option<u16>,
+    /// Guest port range (optional)
+    #[serde(rename = "guestPortRange", skip_serializing_if = "Option::is_none")]
+    pub guest_port_range: Option<(u16, u16)>,
+    /// Guest socket (optional)
+    #[serde(rename = "guestSocket", skip_serializing_if = "Option::is_none")]
+    pub guest_socket: Option<String>,
+    /// Host IP address (optional, defaults to 127.0.0.1)
+    #[serde(rename = "hostIP", skip_serializing_if = "Option::is_none")]
+    pub host_ip: Option<String>,
+    /// Host port (optional when using socket)
+    #[serde(rename = "hostPort", skip_serializing_if = "Option::is_none")]
+    pub host_port: Option<u16>,
+    /// Host port range (optional)
+    #[serde(rename = "hostPortRange", skip_serializing_if = "Option::is_none")]
+    pub host_port_range: Option<(u16, u16)>,
+    /// Host socket (optional)
+    #[serde(rename = "hostSocket", skip_serializing_if = "Option::is_none")]
+    pub host_socket: Option<String>,
+    /// Protocol (e.g., "tcp", "udp", "any")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proto: Option<String>,
+    /// Whether to ignore this port forward
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore: Option<bool>,
+}
+
+impl Default for LimaConfig {
+    fn default() -> Self {
+        Self {
+            minimum_lima_version: None,
+            vm_type: None,
+            rosetta: None,
+            images: Some(vec![]),
+            mounts: Some(vec![]),
+            containerd: Some(ContainerdConfig {
+                system: false,
+                user: false,
+            }),
+            provision: Some(vec![]),
+            probes: Some(vec![]),
+            copy_to_host: Some(vec![]),
+            port_forwards: Some(vec![]),
+            cpus: None,
+            memory: None,
+            disk: None,
+        }
+    }
+}
+
+impl LimaConfig {
+    /// Create a new Lima config with default values
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Read YAML content and parse into LimaConfig
+    pub fn from_yaml(content: &str) -> Result<Self, serde_yml::Error> {
+        serde_yml::from_str(content)
+    }
+
+    /// Convert LimaConfig to YAML string
+    #[allow(dead_code)]
+    pub fn to_yaml(&self) -> Result<String, serde_yml::Error> {
+        serde_yml::to_string(self)
+    }
+
+    /// Convert LimaConfig to pretty YAML string
+    pub fn to_yaml_pretty(&self) -> Result<String, serde_yml::Error> {
+        serde_yml::to_string(self)
+    }
+
+    /// Merge another LimaConfig into this one, concatenating vectors and overwriting scalar values
+    pub fn merge(mut self, other: LimaConfig) -> Self {
+        if other.minimum_lima_version.is_some() {
+            self.minimum_lima_version = other.minimum_lima_version;
+        }
+        if other.vm_type.is_some() {
+            self.vm_type = other.vm_type;
+        }
+        if other.rosetta.is_some() {
+            self.rosetta = other.rosetta;
+        }
+        if other.cpus.is_some() {
+            self.cpus = other.cpus;
+        }
+        if other.memory.is_some() {
+            self.memory = other.memory;
+        }
+        if other.disk.is_some() {
+            self.disk = other.disk;
+        }
+        if other.containerd.is_some() {
+            self.containerd = other.containerd;
+        }
+        // Merge vectors
+        self.images = Self::merge_vecs(self.images, other.images);
+        self.mounts = Self::merge_vecs(self.mounts, other.mounts);
+        self.provision = Self::merge_vecs(self.provision, other.provision);
+        self.probes = Self::merge_vecs(self.probes, other.probes);
+        self.copy_to_host = Self::merge_vecs(self.copy_to_host, other.copy_to_host);
+        self.port_forwards = Self::merge_vecs(self.port_forwards, other.port_forwards);
+
+        self
+    }
+
+    fn merge_vecs<T>(v1: Option<Vec<T>>, v2: Option<Vec<T>>) -> Option<Vec<T>> {
+        match (v1, v2) {
+            (Some(mut a), Some(b)) => {
+                a.extend(b);
+                Some(a)
+            }
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
+    }
+}
+
+/// Get the default k0s Lima configuration
+pub fn get_default_k0s_lima_config<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    instance_name: &str,
+    install_helm: bool,
+    install_local_path_provisioner: bool,
+) -> Result<LimaConfig, String> {
+    // Get system information
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    // Calculate 1/2 of host CPU cores (minimum 1)
+    let host_cpus = sys.cpus().len() as u32;
+    let vm_cpus = std::cmp::max(1, host_cpus / 2);
+
+    // Calculate 1/2 of host memory in GiB (minimum 1 GiB)
+    let host_memory_bytes = sys.total_memory();
+    let vm_memory_gib = std::cmp::max(1, (host_memory_bytes / 2) / (1024 * 1024 * 1024));
+    let vm_memory = format!("{}GiB", vm_memory_gib);
+
+    // 1. Base Configuration (VM specs and Core k0s installation)
+    let base_config = LimaConfig {
+        minimum_lima_version: Some("2.0.0".to_string()),
+        vm_type: Some("vz".to_string()),
+        rosetta: Some(RosettaConfig {
+            enabled: true,
+            binfmt: true,
+        }),
+        cpus: Some(vm_cpus),
+        memory: Some(vm_memory),
+        disk: Some("40GiB".to_string()),
+        images: Some(vec![
+            Image {
+                location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img".to_string(),
+                arch: Some("aarch64".to_string()),
+                digest: None,
+            },
+            Image {
+                location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img".to_string(),
+                arch: Some("x86_64".to_string()),
+                digest: None,
+            },
+        ]),
+        mounts: Some(vec![]),
+        containerd: Some(ContainerdConfig {
+            system: false,
+            user: false,
+        }),
+        provision: Some(vec![
+            Provision {
+                mode: "system".to_string(),
+                script: r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v btop >/dev/null 2>&1; then
+  apt-get update && apt-get install -y btop
+fi
+"#.to_string(),
+            },
+            Provision {
+                mode: "system".to_string(),
+                script: r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v k0s >/dev/null 2>&1; then
+  curl -sfL https://get.k0s.sh | sh
+fi
+"#.to_string(),
+            },
+            Provision {
+                mode: "system".to_string(),
+                script: r#"#!/bin/bash
+set -eux -o pipefail
+
+#  start k0s as a single node cluster
+if ! systemctl status k0scontroller >/dev/null 2>&1; then
+  k0s install controller --single
+fi
+
+systemctl start k0scontroller
+"#.to_string(),
+            },
+            Provision {
+                mode: "system".to_string(),
+                script: r#"#!/bin/bash
+set -eux -o pipefail
+
+# Wait for k0s to create the kubeconfig
+timeout 120s bash -c "until test -f /var/lib/k0s/pki/admin.conf; do sleep 3; done"
+
+# Allow the default user to access the k0s generated kubeconfig from limactl shell
+chmod 644 /var/lib/k0s/pki/admin.conf
+"#.to_string(),
+            },
+        ]),
+        probes: Some(vec![Probe {
+            description: "k0s to be running".to_string(),
+            script: r#"#!/bin/bash
+set -eux -o pipefail
+if ! timeout 30s bash -c "until sudo test -f /var/lib/k0s/pki/admin.conf; do sleep 3; done"; then
+  echo >&2 "k0s kubeconfig file has not yet been created"
+  exit 1
+fi
+"#.to_string(),
+            hint: Some("The k0s control plane is not ready yet.".to_string()),
+        }]),
+        copy_to_host: Some(vec![]),
+        ..Default::default()
+    };
+
+    // 2. Host Access Configuration (Exposing the K8s API to the host at https://127.0.0.1:6443)
+    let host_access_config = LimaConfig {
+        provision: Some(vec![Provision {
+            mode: "system".to_string(),
+            script: format!(
+                r#"#!/bin/bash
+set -eux -o pipefail
+# Generate a kubeconfig for host access pointing to localhost:6443 (via Lima port forward)
+k0s kubeconfig admin > /var/lib/k0s/pki/external-admin.conf
+sed -i 's|server: https://.*:6443|server: https://127.0.0.1:6443|' /var/lib/k0s/pki/external-admin.conf
+
+# Rename the context from 'Default' to instance name
+sed -i "s/name: [Dd]efault/name: {instance_name}/g" /var/lib/k0s/pki/external-admin.conf
+sed -i "s/current-context: [Dd]efault/current-context: {instance_name}/g" /var/lib/k0s/pki/external-admin.conf
+chmod 644 /var/lib/k0s/pki/external-admin.conf
+"#
+            ),
+        }]),
+        copy_to_host: Some(vec![CopyToHost {
+            guest: "/var/lib/k0s/pki/external-admin.conf".to_string(),
+            host: "{{.Dir}}/kubeconfig.yaml".to_string(),
+            delete_on_stop: Some(true),
+        }]),
+        port_forwards: Some(vec![PortForward {
+            guest_ip_must_be_zero: Some(true),
+            guest_ip: None,
+            guest_port: Some(6443),
+            guest_port_range: None,
+            guest_socket: None,
+            host_ip: Some("127.0.0.1".to_string()),
+            host_port: Some(6443),
+            host_port_range: None,
+            host_socket: None,
+            proto: Some("tcp".to_string()),
+            ignore: None,
+        }]),
+        ..Default::default()
+    };
+
+    // 3. Docker installation and socket forwarding
+    let host_user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .or_else(|_| {
+            std::process::Command::new("whoami")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .map_err(|_| std::env::VarError::NotPresent)
+        })
+        .unwrap_or_default();
+    let docker_config = LimaConfig {
+        provision: Some(vec![Provision {
+            mode: "system".to_string(),
+            script: format!(
+                r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
+# Ensure the Lima user can access the Docker socket
+# Lima creates a guest user matching the host username
+if id "{host_user}" &>/dev/null && ! id -nG "{host_user}" | grep -qw docker; then
+  usermod -aG docker "{host_user}"
+fi
+# Lima forwards the Docker socket over SSH, but the SSH session is established
+# before the group change takes effect. Override the socket group to the Lima
+# user's primary group, which the SSH session already has.
+mkdir -p /etc/systemd/system/docker.socket.d
+cat > /etc/systemd/system/docker.socket.d/override.conf <<UNIT
+[Socket]
+SocketGroup={host_user}
+UNIT
+systemctl daemon-reload
+systemctl restart docker.socket
+"#
+            ),
+        }]),
+        port_forwards: Some(vec![PortForward {
+            guest_ip_must_be_zero: None,
+            guest_ip: None,
+            guest_port: None,
+            guest_port_range: None,
+            guest_socket: Some("/var/run/docker.sock".to_string()),
+            host_ip: None,
+            host_port: None,
+            host_port_range: None,
+            host_socket: Some("{{.Dir}}/docker.sock".to_string()),
+            proto: None,
+            ignore: None,
+        }]),
+        ..Default::default()
+    };
+
+    // 4. Optional: Helm installation
+    let mut helm_config = LimaConfig::default();
+    if install_helm {
+        helm_config.provision = Some(vec![Provision {
+            mode: "system".to_string(),
+            script: r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v helm >/dev/null 2>&1; then
+  curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+fi
+"#
+            .to_string(),
+        }]);
+    }
+
+    // 4. Optional: Local Path Provisioner
+    let mut lpp_config = LimaConfig::default();
+    if install_local_path_provisioner {
+        lpp_config.provision = Some(vec![Provision {
+            mode: "system".to_string(),
+            script: r#"#!/bin/bash
+set -eux -o pipefail
+# Wait for k0s to be ready
+timeout 120s bash -c "until k0s kubectl get nodes >/dev/null 2>&1; do sleep 3; done"
+
+k0s kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+k0s kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+"#.to_string(),
+        }]);
+    }
+
+    Ok(base_config
+        .merge(host_access_config)
+        .merge(docker_config)
+        .merge(helm_config)
+        .merge(lpp_config))
+}
+
+/// Get the default Docker-only Lima configuration (no k0s/Kubernetes)
+pub fn get_default_docker_lima_config<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _instance_name: &str,
+) -> Result<LimaConfig, String> {
+    // Get system information
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    // Calculate 1/2 of host CPU cores (minimum 1)
+    let host_cpus = sys.cpus().len() as u32;
+    let vm_cpus = std::cmp::max(1, host_cpus / 2);
+
+    // Calculate 1/2 of host memory in GiB (minimum 1 GiB)
+    let host_memory_bytes = sys.total_memory();
+    let vm_memory_gib = std::cmp::max(1, (host_memory_bytes / 2) / (1024 * 1024 * 1024));
+    let vm_memory = format!("{}GiB", vm_memory_gib);
+
+    // 1. Base Configuration (VM specs + btop only)
+    let base_config = LimaConfig {
+        minimum_lima_version: Some("2.0.0".to_string()),
+        vm_type: Some("vz".to_string()),
+        rosetta: Some(RosettaConfig {
+            enabled: true,
+            binfmt: true,
+        }),
+        cpus: Some(vm_cpus),
+        memory: Some(vm_memory),
+        disk: Some("40GiB".to_string()),
+        images: Some(vec![
+            Image {
+                location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img".to_string(),
+                arch: Some("aarch64".to_string()),
+                digest: None,
+            },
+            Image {
+                location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img".to_string(),
+                arch: Some("x86_64".to_string()),
+                digest: None,
+            },
+        ]),
+        mounts: Some(vec![]),
+        containerd: Some(ContainerdConfig {
+            system: false,
+            user: false,
+        }),
+        provision: Some(vec![Provision {
+            mode: "system".to_string(),
+            script: r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v btop >/dev/null 2>&1; then
+  apt-get update && apt-get install -y btop
+fi
+"#.to_string(),
+        }]),
+        probes: Some(vec![]),
+        copy_to_host: Some(vec![]),
+        ..Default::default()
+    };
+
+    // 2. Docker installation and socket forwarding
+    let host_user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .or_else(|_| {
+            std::process::Command::new("whoami")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .map_err(|_| std::env::VarError::NotPresent)
+        })
+        .unwrap_or_default();
+    let docker_config = LimaConfig {
+        provision: Some(vec![Provision {
+            mode: "system".to_string(),
+            script: format!(
+                r#"#!/bin/bash
+set -eux -o pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
+# Ensure the Lima user can access the Docker socket
+# Lima creates a guest user matching the host username
+if id "{host_user}" &>/dev/null && ! id -nG "{host_user}" | grep -qw docker; then
+  usermod -aG docker "{host_user}"
+fi
+# Lima forwards the Docker socket over SSH, but the SSH session is established
+# before the group change takes effect. Override the socket group to the Lima
+# user's primary group, which the SSH session already has.
+mkdir -p /etc/systemd/system/docker.socket.d
+cat > /etc/systemd/system/docker.socket.d/override.conf <<UNIT
+[Socket]
+SocketGroup={host_user}
+UNIT
+systemctl daemon-reload
+systemctl restart docker.socket
+"#
+            ),
+        }]),
+        port_forwards: Some(vec![PortForward {
+            guest_ip_must_be_zero: None,
+            guest_ip: None,
+            guest_port: None,
+            guest_port_range: None,
+            guest_socket: Some("/var/run/docker.sock".to_string()),
+            host_ip: None,
+            host_port: None,
+            host_port_range: None,
+            host_socket: Some("{{.Dir}}/docker.sock".to_string()),
+            proto: None,
+            ignore: None,
+        }]),
+        ..Default::default()
+    };
+
+    Ok(base_config.merge(docker_config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lima_config_all_fields_mutation_and_serialization() {
+        // Create a new config with all fields populated
+        let mut config = LimaConfig {
+            minimum_lima_version: Some("2.0.0".to_string()),
+            vm_type: Some("vz".to_string()),
+            rosetta: None,
+            images: Some(vec![Image {
+                location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img".to_string(),
+                arch: Some("aarch64".to_string()),
+                digest: Some("sha256:1234567890".to_string()),
+            }]),
+            cpus: Some(4),
+            memory: Some("4GiB".to_string()),
+            disk: Some("100GiB".to_string()),
+            mounts: Some(vec![Mount {
+                location: Some("/tmp/lima".to_string()),
+                mount_point: Some("/mnt/shared".to_string()),
+                writable: Some(true),
+            }]),
+            containerd: Some(ContainerdConfig {
+                system: false,
+                user: false,
+            }),
+            provision: Some(vec![Provision {
+                mode: "system".to_string(),
+                script: "#!/bin/bash\necho 'Hello World'".to_string(),
+            }]),
+            probes: Some(vec![Probe {
+                description: "k0s to be running".to_string(),
+                script: "#!/bin/bash\ntest -f /var/lib/k0s/pki/admin.conf".to_string(),
+                hint: Some("Check k0s logs".to_string()),
+            }]),
+            copy_to_host: Some(vec![CopyToHost {
+                guest: "/var/lib/k0s/pki/admin.conf".to_string(),
+                host: "{{.Dir}}/copied-from-guest/kubeconfig.yaml".to_string(),
+                delete_on_stop: Some(true),
+            }]),
+            port_forwards: Some(vec![]),
+        };
+
+        // Mutate all fields
+        config.minimum_lima_version = Some("2.1.0".to_string());
+        config.vm_type = Some("qemu".to_string());
+        config.cpus = Some(8);
+        config.memory = Some("8GiB".to_string());
+        config.disk = Some("200GiB".to_string());
+
+        // Update images
+        if let Some(ref mut images) = config.images {
+            images[0].arch = Some("x86_64".to_string());
+        }
+
+        // Update mounts
+        if let Some(ref mut mounts) = config.mounts {
+            mounts[0].writable = Some(false);
+        }
+
+        // Update containerd
+        config.containerd = Some(ContainerdConfig {
+            system: true,
+            user: true,
+        });
+
+        // Update provision
+        if let Some(ref mut provision) = config.provision {
+            provision[0].script = "#!/bin/bash\necho 'Updated Script'".to_string();
+        }
+
+        // Update probes
+        if let Some(ref mut probes) = config.probes {
+            probes[0].hint = Some("Updated hint".to_string());
+        }
+
+        // Update copy_to_host
+        if let Some(ref mut copy_to_host) = config.copy_to_host {
+            copy_to_host[0].delete_on_stop = Some(false);
+        }
+
+        // Serialize to YAML
+        let yaml = config.to_yaml().expect("Failed to serialize to YAML");
+
+        // Verify YAML is valid and can be deserialized
+        let deserialized: LimaConfig =
+            LimaConfig::from_yaml(&yaml).expect("Failed to deserialize YAML");
+
+        // Assert all mutated values are as expected
+        assert_eq!(deserialized.minimum_lima_version, Some("2.1.0".to_string()));
+        assert_eq!(deserialized.vm_type, Some("qemu".to_string()));
+        assert_eq!(deserialized.cpus, Some(8));
+        assert_eq!(deserialized.memory, Some("8GiB".to_string()));
+        assert_eq!(deserialized.disk, Some("200GiB".to_string()));
+
+        // Verify nested fields
+        assert!(deserialized.images.is_some());
+        let images = deserialized.images.unwrap();
+        assert_eq!(images[0].arch, Some("x86_64".to_string()));
+
+        assert!(deserialized.mounts.is_some());
+        let mounts = deserialized.mounts.unwrap();
+        assert_eq!(mounts[0].writable, Some(false));
+
+        assert!(deserialized.containerd.is_some());
+        let containerd = deserialized.containerd.unwrap();
+        assert_eq!(containerd.system, true);
+        assert_eq!(containerd.user, true);
+
+        assert!(deserialized.provision.is_some());
+        let provision = deserialized.provision.unwrap();
+        assert_eq!(provision[0].script, "#!/bin/bash\necho 'Updated Script'");
+
+        assert!(deserialized.probes.is_some());
+        let probes = deserialized.probes.unwrap();
+        assert_eq!(probes[0].hint, Some("Updated hint".to_string()));
+
+        assert!(deserialized.copy_to_host.is_some());
+        let copy_to_host = deserialized.copy_to_host.unwrap();
+        assert_eq!(copy_to_host[0].delete_on_stop, Some(false));
+    }
+
+    #[test]
+    fn test_lima_config_from_yaml_to_yaml() {
+        let yaml_input = r#"
+vmType: "vz"
+cpus: 4
+memory: "4GiB"
+disk: "100GiB"
+images:
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img
+  arch: aarch64
+mounts: []
+containerd:
+  system: false
+  user: false
+minimumLimaVersion: 2.0.0
+copyToHost:
+- guest: "/var/lib/k0s/pki/admin.conf"
+  host: "{{.Dir}}/copied-from-guest/kubeconfig.yaml"
+  deleteOnStop: true
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    command -v k0s >/dev/null 2>&1 && exit 0
+    curl -sfL https://get.k0s.sh | sh
+probes:
+- description: "k0s to be running"
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    timeout 30s bash -c "until sudo test -f /var/lib/k0s/pki/admin.conf; do sleep 3; done"
+  hint: |
+    The k0s control plane is not ready yet.
+"#;
+
+        // Parse from YAML
+        let config = LimaConfig::from_yaml(yaml_input).expect("Failed to parse YAML");
+
+        // Verify all fields
+        assert_eq!(config.vm_type, Some("vz".to_string()));
+        assert_eq!(config.cpus, Some(4));
+        assert_eq!(config.memory, Some("4GiB".to_string()));
+        assert_eq!(config.disk, Some("100GiB".to_string()));
+        assert_eq!(config.minimum_lima_version, Some("2.0.0".to_string()));
+
+        // Verify images
+        assert!(config.images.is_some());
+        let images = config.images.as_ref().unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].arch, Some("aarch64".to_string()));
+
+        // Verify containerd
+        assert!(config.containerd.is_some());
+        let containerd = config.containerd.as_ref().unwrap();
+        assert_eq!(containerd.system, false);
+        assert_eq!(containerd.user, false);
+
+        // Verify provision
+        assert!(config.provision.is_some());
+        let provision = config.provision.as_ref().unwrap();
+        assert_eq!(provision.len(), 1);
+        assert_eq!(provision[0].mode, "system");
+
+        // Verify probes
+        assert!(config.probes.is_some());
+        let probes = config.probes.as_ref().unwrap();
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].description, "k0s to be running");
+
+        // Verify copy_to_host
+        assert!(
+            config.copy_to_host.is_some(),
+            "copy_to_host should be Some after parsing"
+        );
+        let copy_to_host = config.copy_to_host.as_ref().unwrap();
+        assert_eq!(copy_to_host.len(), 1);
+        assert_eq!(copy_to_host[0].guest, "/var/lib/k0s/pki/admin.conf");
+        assert_eq!(copy_to_host[0].delete_on_stop, Some(true));
+
+        // Serialize back to YAML
+        let yaml_output = config.to_yaml().expect("Failed to serialize to YAML");
+        println!("Serialized YAML:\n{}", yaml_output);
+
+        // Parse again to ensure round-trip works
+        let config2 = LimaConfig::from_yaml(&yaml_output).expect("Failed to parse round-trip YAML");
+        assert_eq!(config2.vm_type, config.vm_type);
+        assert_eq!(config2.cpus, config.cpus);
+        assert_eq!(config2.memory, config.memory);
+    }
+
+    #[test]
+    fn test_empty_optional_fields_are_skipped() {
+        let config = LimaConfig {
+            minimum_lima_version: None,
+            vm_type: Some("vz".to_string()),
+            rosetta: None,
+            images: Some(vec![]),
+            cpus: Some(4),
+            memory: None,
+            disk: None,
+            mounts: Some(vec![]),
+            containerd: None,
+            provision: Some(vec![]),
+            probes: Some(vec![]),
+            copy_to_host: Some(vec![]),
+            port_forwards: Some(vec![]),
+        };
+
+        let yaml = config.to_yaml().expect("Failed to serialize");
+
+        // Empty vecs should not appear in YAML
+        assert!(!yaml.contains("images: []"));
+        assert!(!yaml.contains("mounts: []"));
+        assert!(!yaml.contains("provision: []"));
+        assert!(!yaml.contains("probes: []"));
+        assert!(!yaml.contains("copyToHost: []"));
+        assert!(!yaml.contains("portForwards: []"));
+
+        // Fields with values should appear
+        assert!(yaml.contains("vmType: vz"));
+        assert!(yaml.contains("cpus: 4"));
+    }
+
+    #[test]
+    fn test_default_lima_config() {
+        let config = LimaConfig::default();
+
+        assert_eq!(config.minimum_lima_version, None);
+        assert_eq!(config.vm_type, None);
+        assert!(config.images.is_some());
+        assert!(config.mounts.is_some());
+        assert!(config.containerd.is_some());
+        assert!(config.provision.is_some());
+        assert!(config.probes.is_some());
+        assert!(config.copy_to_host.is_some());
+        assert_eq!(config.cpus, None);
+        assert_eq!(config.memory, None);
+        assert_eq!(config.disk, None);
+    }
+
+    #[test]
+    fn test_cpu_memory_calculation_logic() {
+        use sysinfo::System;
+
+        // Test the same CPU/memory calculation logic used in get_default_k0s_lima_config
+        let mut sys = System::new_all();
+        sys.refresh_all();
+
+        let host_cpus = sys.cpus().len() as u32;
+        let vm_cpus = std::cmp::max(1, host_cpus / 2);
+
+        let host_memory_bytes = sys.total_memory();
+        let vm_memory_gib = std::cmp::max(1, (host_memory_bytes / 2) / (1024 * 1024 * 1024));
+
+        // Verify CPU calculations (varies by host, but should be reasonable)
+        assert!(vm_cpus >= 1, "VM CPUs should be at least 1");
+        assert!(vm_cpus <= host_cpus, "VM CPUs should not exceed host CPUs");
+        assert!(
+            vm_cpus == host_cpus / 2 || vm_cpus == 1,
+            "VM CPUs should be half of host CPUs or 1 (minimum)"
+        );
+
+        // Verify memory calculations (varies by host, but should be reasonable)
+        assert!(vm_memory_gib >= 1, "VM memory should be at least 1 GiB");
+        let host_memory_gib = host_memory_bytes / (1024 * 1024 * 1024);
+        assert!(
+            vm_memory_gib <= host_memory_gib,
+            "VM memory should not exceed host memory"
+        );
+
+        // Log values for debugging (varies by test host)
+        println!("Host CPUs: {}, VM CPUs: {}", host_cpus, vm_cpus);
+        println!(
+            "Host Memory: {} GiB, VM Memory: {} GiB",
+            host_memory_gib, vm_memory_gib
+        );
+    }
+
+    #[test]
+    fn test_default_k0s_config_snapshot() {
+        let app = tauri::test::mock_app();
+        let instance_name = "test-instance";
+
+        let config = get_default_k0s_lima_config(app.handle(), instance_name, true, true)
+            .expect("Failed to get default config");
+
+        let yaml = config.to_yaml_pretty().expect("Failed to serialize");
+
+        // Capture dynamic host-specific values to insert into the snapshot
+        let cpus = config.cpus.unwrap();
+        let memory = config.memory.clone().unwrap();
+        let host_user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_default();
+
+        let expected_whole_file = format!(
+            r#"
+minimumLimaVersion: '2.0.0'
+vmType: vz
+rosetta:
+  enabled: true
+  binfmt: true
+cpus: {cpus}
+memory: '{memory}'
+disk: '40GiB'
+images:
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img
+  arch: aarch64
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+  arch: x86_64
+containerd:
+  system: false
+  user: false
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! command -v btop >/dev/null 2>&1; then
+      apt-get update && apt-get install -y btop
+    fi
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! command -v k0s >/dev/null 2>&1; then
+      curl -sfL https://get.k0s.sh | sh
+    fi
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    #  start k0s as a single node cluster
+    if ! systemctl status k0scontroller >/dev/null 2>&1; then
+      k0s install controller --single
+    fi
+
+    systemctl start k0scontroller
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    # Wait for k0s to create the kubeconfig
+    timeout 120s bash -c "until test -f /var/lib/k0s/pki/admin.conf; do sleep 3; done"
+
+    # Allow the default user to access the k0s generated kubeconfig from limactl shell
+    chmod 644 /var/lib/k0s/pki/admin.conf
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    # Generate a kubeconfig for host access pointing to localhost:6443 (via Lima port forward)
+    k0s kubeconfig admin > /var/lib/k0s/pki/external-admin.conf
+    sed -i 's|server: https://.*:6443|server: https://127.0.0.1:6443|' /var/lib/k0s/pki/external-admin.conf
+
+    # Rename the context from 'Default' to instance name
+    sed -i "s/name: [Dd]efault/name: {instance_name}/g" /var/lib/k0s/pki/external-admin.conf
+    sed -i "s/current-context: [Dd]efault/current-context: {instance_name}/g" /var/lib/k0s/pki/external-admin.conf
+    chmod 644 /var/lib/k0s/pki/external-admin.conf
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! command -v docker >/dev/null 2>&1; then
+      curl -fsSL https://get.docker.com | sh
+    fi
+    # Ensure the Lima user can access the Docker socket
+    # Lima creates a guest user matching the host username
+    if id "{host_user}" &>/dev/null && ! id -nG "{host_user}" | grep -qw docker; then
+      usermod -aG docker "{host_user}"
+    fi
+    # Lima forwards the Docker socket over SSH, but the SSH session is established
+    # before the group change takes effect. Override the socket group to the Lima
+    # user's primary group, which the SSH session already has.
+    mkdir -p /etc/systemd/system/docker.socket.d
+    cat > /etc/systemd/system/docker.socket.d/override.conf <<UNIT
+    [Socket]
+    SocketGroup={host_user}
+    UNIT
+    systemctl daemon-reload
+    systemctl restart docker.socket
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! command -v helm >/dev/null 2>&1; then
+      curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+    fi
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    # Wait for k0s to be ready
+    timeout 120s bash -c "until k0s kubectl get nodes >/dev/null 2>&1; do sleep 3; done"
+
+    k0s kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+    k0s kubectl patch storageclass local-path -p '{{"metadata": {{"annotations":{{"storageclass.kubernetes.io/is-default-class":"true"}}}}}}'
+probes:
+- description: k0s to be running
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! timeout 30s bash -c "until sudo test -f /var/lib/k0s/pki/admin.conf; do sleep 3; done"; then
+      echo >&2 "k0s kubeconfig file has not yet been created"
+      exit 1
+    fi
+  hint: The k0s control plane is not ready yet.
+copyToHost:
+- guest: /var/lib/k0s/pki/external-admin.conf
+  host: '{{{{.Dir}}}}/kubeconfig.yaml'
+  deleteOnStop: true
+portForwards:
+- guestIPMustBeZero: true
+  guestPort: 6443
+  hostIP: '127.0.0.1'
+  hostPort: 6443
+  proto: tcp
+- guestSocket: /var/run/docker.sock
+  hostSocket: '{{{{.Dir}}}}/docker.sock'"#
+        );
+
+        assert_eq!(yaml.trim(), expected_whole_file.trim());
+    }
+}

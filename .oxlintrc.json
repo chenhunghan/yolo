@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "unicorn",
+    "typescript",
+    "oxc",
+    "react",
+    "react-perf",
+    "import",
+    "jsx-a11y",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "warn",
+    "style": "off"
+  },
+  "rules": {
+    "unicorn/no-null": "off",
+    "unicorn/filename-case": "off",
+    "no-ternary": "off",
+    "react/jsx-max-depth": "off",
+    "no-magic-numbers": "off",
+    "max-statements": ["warn", { "max": 15 }],
+    "max-params": ["warn", { "max": 5 }]
+  },
+  "env": {
+    "builtin": true
+  },
+  "ignorePatterns": ["dist", "node_modules", "src-tauri"]
+}

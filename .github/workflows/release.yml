@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - run: npx tauri build --target ${{ matrix.target }}
+
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+  update-homebrew:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - id: version
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+
+      - id: sha-arm
+        run: |
+          curl -fSL -o yolo-arm.dmg "https://github.com/chenhunghan/yolo-box/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_aarch64.dmg"
+          echo "sha256=$(shasum -a 256 yolo-arm.dmg | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - id: sha-intel
+        run: |
+          curl -fSL -o yolo-intel.dmg "https://github.com/chenhunghan/yolo-box/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_x64.dmg"
+          echo "sha256=$(shasum -a 256 yolo-intel.dmg | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA_ARM: ${{ steps.sha-arm.outputs.sha256 }}
+          SHA_INTEL: ${{ steps.sha-intel.outputs.sha256 }}
+        shell: bash
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/chenhunghan/homebrew-tap.git"
+          cd homebrew-tap
+          printf 'cask "yolo" do\n  version "%s"\n\n  on_arm do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo-box/releases/download/v#{version}/yolo_#{version}_aarch64.dmg"\n  end\n\n  on_intel do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo-box/releases/download/v#{version}/yolo_#{version}_x64.dmg"\n  end\n\n  name "yolo"\n  desc "Desktop GUI for managing Lima instances and Kubernetes clusters"\n  homepage "https://github.com/chenhunghan/yolo-box"\n\n  app "yolo.app"\n\n  postflight do\n    system "xattr", "-cr", "#{appdir}/yolo.app"\n  end\nend\n' "$VERSION" "$SHA_ARM" "$SHA_INTEL" > Casks/yolo.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/yolo.rb
+          git commit -m "chore: update yolo to $VERSION"
+          git push

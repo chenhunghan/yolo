@@ -1,0 +1,144 @@
+import { useEffect, useRef } from "react";
+import {
+  useXterm,
+  useXtermInput,
+  useXtermResize,
+  useTerminalSession,
+} from "../hooks/terminal";
+import { listen } from "@tauri-apps/api/event";
+import * as log from "@tauri-apps/plugin-log";
+
+interface Props {
+  sessionId?: string;
+  onSessionCreated?: (sessionId: string) => void;
+  onCwdChanged?: (cwd: string) => void;
+  onTitleChanged?: (title: string) => void;
+  initialCommand: string;
+  initialArgs: string[];
+  cwd: string;
+  isUpperRow?: boolean;
+}
+
+function cleanupTauriListener(unlistenPromise: Promise<() => void>) {
+  void unlistenPromise
+    .then((unlisten) => Promise.resolve(unlisten()))
+    .catch(() => {
+      // Listener may have already been disposed
+    });
+}
+
+export function TerminalComponent({
+  sessionId: propsSessionId,
+  onSessionCreated,
+  onCwdChanged,
+  onTitleChanged,
+  initialCommand,
+  initialArgs,
+  cwd,
+  isUpperRow,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { term, geometry } = useXterm(containerRef);
+  const spawnedRef = useRef(false);
+
+  // Session management (spawn/connect) — uses initial geometry for spawn dims
+  const {
+    sessionId: hookSessionId,
+    spawn,
+    connect,
+    isReady,
+  } = useTerminalSession(term, geometry?.cols ?? 80, geometry?.rows ?? 24);
+
+  // Resize hook: observes container and notifies PTY
+  useXtermResize(term, containerRef, hookSessionId ?? null, isUpperRow);
+
+  // Input hook: xterm onData → PTY
+  useXtermInput(term, hookSessionId);
+
+  // Spawn or reconnect when term is ready (fire once)
+  useEffect(() => {
+    if (!term || !geometry || isReady || spawnedRef.current) return;
+    spawnedRef.current = true;
+
+    log.debug(`[TerminalComponent] term ready: ${geometry.cols}x${geometry.rows}`);
+
+    if (propsSessionId) {
+      // Try to re-attach to a live session (survives HMR, tab switch, etc.)
+      log.debug(`[TerminalComponent] attempting reconnect to ${propsSessionId}`);
+      connect(propsSessionId);
+    } else {
+      log.debug(`[TerminalComponent] spawning: ${initialCommand}`);
+      spawn({ args: initialArgs, command: initialCommand, cwd });
+    }
+  }, [term, geometry, propsSessionId, initialCommand, initialArgs, cwd, connect, spawn, isReady]);
+
+  // Lift sessionId up when created or replaced (e.g. after restore-spawn on restart)
+  useEffect(() => {
+    if (hookSessionId && hookSessionId !== propsSessionId && onSessionCreated) {
+      onSessionCreated(hookSessionId);
+    }
+  }, [hookSessionId, propsSessionId, onSessionCreated]);
+
+  // Listen for CWD changes from backend
+  useEffect(() => {
+    const sessionId = hookSessionId;
+    if (!sessionId || !onCwdChanged) return;
+
+    const unlisten = listen<{ sessionId: string; cwd: string }>("pty-cwd-changed", (event) => {
+      if (event.payload.sessionId === sessionId) {
+        onCwdChanged(event.payload.cwd);
+      }
+    });
+    return () => {
+      cleanupTauriListener(unlisten);
+    };
+  }, [hookSessionId, onCwdChanged]);
+
+  // Listen for terminal title changes (OSC escape sequences)
+  useEffect(() => {
+    if (!term || !onTitleChanged) return;
+
+    const disposable = term.onTitleChange((title) => {
+      onTitleChanged(title);
+    });
+    return () => {
+      disposable.dispose();
+    };
+  }, [term, onTitleChanged]);
+
+  // Show message when the PTY process exits (e.g. user typed `exit`)
+  useEffect(() => {
+    const sessionId = hookSessionId;
+    if (!sessionId || !term) return;
+
+    const unlisten = listen<{ sessionId: string }>("pty-exited", (event) => {
+      if (event.payload.sessionId === sessionId) {
+        const msg = "\r\n\x1b[90m[Process exited]\x1b[0m\r\n";
+        term.write(msg);
+      }
+    });
+    return () => {
+      cleanupTauriListener(unlisten);
+    };
+  }, [hookSessionId, term]);
+
+  // Re-attach to live session on window visibility change
+  useEffect(() => {
+    const sessionId = hookSessionId;
+    if (!sessionId) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        connect(sessionId);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hookSessionId, connect]);
+
+  return (
+    <div ref={containerRef} className="h-full w-full min-h-0 min-w-0 overflow-hidden bg-black" />
+  );
+}

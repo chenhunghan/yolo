@@ -1,0 +1,70 @@
+import { useCallback } from "react";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { LogViewer } from "./LogViewer";
+import { useOnLimaCreateLogs } from "src/hooks/useOnLimaCreateLogs";
+
+interface Props {
+  open: boolean;
+  onDialogOpenChange: (open: boolean) => void;
+  onCreateInstanceSuccess?: () => void;
+  instanceName: string;
+}
+
+export function CreatingInstanceDialog({
+  open,
+  onDialogOpenChange,
+  onCreateInstanceSuccess,
+  instanceName,
+}: Props) {
+  const logState = useOnLimaCreateLogs(instanceName, {
+    onSuccess: () => {
+      onCreateInstanceSuccess?.();
+    },
+  });
+  const handleClose = useCallback(() => {
+    onDialogOpenChange(false);
+  }, [onDialogOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onDialogOpenChange}>
+      <CreatingInstanceDialogContent onClose={handleClose}>
+        <LogViewer logState={logState} />
+      </CreatingInstanceDialogContent>
+    </Dialog>
+  );
+}
+
+function CreatingInstanceDialogContent({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <DialogContent className="sm:max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>Creating Instance</DialogTitle>
+        <DialogDescription>Creating a new Lima instance</DialogDescription>
+      </DialogHeader>
+      {children}
+      <DialogFooter>
+        <Button
+          variant="outline"
+          title="Close the instance will not cancel the creation process"
+          onClick={onClose}
+        >
+          Close
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
