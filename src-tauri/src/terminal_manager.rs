@@ -132,7 +132,7 @@ impl PtyManager {
 
                         // Update History
                         {
-                            let mut hist = history.lock().unwrap();
+                            let Ok(mut hist) = history.lock() else { break };
                             hist.extend_from_slice(data);
                             if hist.len() > HISTORY_SIZE {
                                 let overflow = hist.len() - HISTORY_SIZE;
@@ -143,7 +143,9 @@ impl PtyManager {
                         // Broadcast
                         let text = String::from_utf8_lossy(data).to_string();
                         let event = PtyEvent { data: text };
-                        let mut subs = subscribers.lock().unwrap();
+                        let Ok(mut subs) = subscribers.lock() else {
+                            break;
+                        };
                         subs.retain(|chan| chan.send(event.clone()).is_ok());
                     }
                     Err(_) => break, // Error
@@ -217,33 +219,6 @@ impl PtyManager {
         // echoed.  The remote shell will echo then execute the commands;
         // `clear` at the end wipes the transient output.
         //
-        // We wrap the zsh branch in `eval '...'` so that bash (which must
-        // parse the entire if/elif/fi) never encounters zsh-only syntax.
-        if command == "limactl" && args.first().map(|a| a.as_str()) == Some("shell") {
-            let writer = session.writer.clone();
-            thread::spawn(move || {
-                thread::sleep(std::time::Duration::from_millis(300));
-                let setup = concat!(
-                    " if [ -n \"$ZSH_VERSION\" ]; then",
-                    " eval '",
-                    "__yolo_precmd(){ print -Pn \"\\e]0;zsh\\a\" };",
-                    " __yolo_preexec(){ print -Pn \"\\e]0;${1%% *}\\a\" };",
-                    " precmd_functions+=(__yolo_precmd);",
-                    " preexec_functions+=(__yolo_preexec)';",
-                    " elif [ -n \"$BASH_VERSION\" ]; then",
-                    // Append our title to PS1 so it renders AFTER any existing
-                    // title sequence (e.g. Ubuntu's \u@\h:\w) — last one wins.
-                    " PS1=\"$PS1\\[\\e]0;bash\\a\\]\";",
-                    " trap 'printf \"\\e]0;%s\\a\" \"${BASH_COMMAND%% *}\"' DEBUG;",
-                    " fi; clear\n",
-                );
-                if let Ok(mut w) = writer.lock() {
-                    let _ = w.write_all(setup.as_bytes());
-                    let _ = w.flush();
-                }
-            });
-        }
-
         self.sessions
             .lock()
             .map_err(|e| e.to_string())?
@@ -282,12 +257,6 @@ impl PtyManager {
             "ZDOTDIR=\"${_YOLO_ORIG_ZDOTDIR}\"\n",
             "[[ -f \"${_YOLO_ORIG_ZDOTDIR}/.zshrc\" ]] && ",
             "builtin source \"${_YOLO_ORIG_ZDOTDIR}/.zshrc\"\n",
-            "\n",
-            "# Terminal title integration\n",
-            "__yolo_precmd() { print -Pn \"\\e]0;zsh\\a\" }\n",
-            "__yolo_preexec() { print -Pn \"\\e]0;${1%% *}\\a\" }\n",
-            "precmd_functions+=(__yolo_precmd)\n",
-            "preexec_functions+=(__yolo_preexec)\n",
         );
         std::fs::write(&zshrc_path, zshrc).map_err(|e| e.to_string())?;
 
