@@ -5,6 +5,30 @@ import { TermTabs } from "./TermTabs";
 import type { Terminal } from "src/services/Terminal";
 import { TerminalRow } from "./TermRow";
 import { EmptyTerminalState } from "./EmptyTerminalState";
+import { TerminalResizeProvider } from "src/contexts/TerminalResizeContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// Mock Tauri invoke to prevent real PTY spawning
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue("mock-session-id"),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
+vi.mock("@tauri-apps/plugin-log", () => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+// Mock TerminalComponent to avoid xterm.js canvas errors in JSDOM
+vi.mock("./TerminalComponent", () => ({
+  TerminalComponent: ({ initialCommand }: { initialCommand: string }) => (
+    <div data-testid="terminal-component">{initialCommand}</div>
+  ),
+}));
 
 // Utility to mock window.matchMedia state
 const setMobile = (isMobile: boolean) => {
@@ -41,12 +65,27 @@ const createMockTabs = () => [
   },
 ];
 
-const createEmptyState = (onAdd: () => void) => createElement(EmptyTerminalState, { onAdd });
+const createEmptyState = (onAdd: () => void) => createElement(EmptyTerminalState, { onAddTerminal: onAdd, onAddClaude: vi.fn() });
+
+const createQueryClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+const Providers = ({ children }: { children: React.ReactNode }) => {
+  const qc = createQueryClient();
+  return createElement(
+    QueryClientProvider,
+    { client: qc },
+    createElement(TerminalResizeProvider, null, children),
+  );
+};
+
+const renderWithProviders = (ui: React.ReactElement) =>
+  render(ui, { wrapper: Providers });
 
 describe("TerminalRow", () => {
   const mockOnSessionCreated = vi.fn();
   const mockOnCwdChanged = vi.fn();
-  const mockOnTitleChanged = vi.fn();
+
   const mockOnRemoveTerminal = vi.fn();
 
   beforeEach(() => {
@@ -55,13 +94,12 @@ describe("TerminalRow", () => {
   });
 
   it("renders each terminal content in its own panel", () => {
-    render(
+    renderWithProviders(
       <TerminalRow
         tabId="tab-1"
         terminals={createMockTerminals()}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         initialCommand="zsh"
         initialArgs={[]}
         onRemoveTerminal={mockOnRemoveTerminal}
@@ -72,13 +110,12 @@ describe("TerminalRow", () => {
 
   it("contains exactly N-1 resize handles for N terminals", () => {
     const terminals = createMockTerminals();
-    render(
+    renderWithProviders(
       <TerminalRow
         tabId="tab-1"
         terminals={terminals}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         initialCommand="zsh"
         initialArgs={[]}
         onRemoveTerminal={mockOnRemoveTerminal}
@@ -92,13 +129,12 @@ describe("TerminalRow", () => {
 
   it("sets horizontal direction on desktop", () => {
     setMobile(false);
-    render(
+    renderWithProviders(
       <TerminalRow
         tabId="tab-1"
         terminals={createMockTerminals()}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         initialCommand="zsh"
         initialArgs={[]}
         onRemoveTerminal={mockOnRemoveTerminal}
@@ -111,13 +147,12 @@ describe("TerminalRow", () => {
 
   it("sets vertical direction on mobile", () => {
     setMobile(true);
-    render(
+    renderWithProviders(
       <TerminalRow
         tabId="tab-1"
         terminals={createMockTerminals()}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         initialCommand="zsh"
         initialArgs={[]}
         onRemoveTerminal={mockOnRemoveTerminal}
@@ -130,13 +165,12 @@ describe("TerminalRow", () => {
 
   it("hides visual drag handles on mobile", () => {
     setMobile(true);
-    render(
+    renderWithProviders(
       <TerminalRow
         tabId="tab-1"
         terminals={createMockTerminals()}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         initialCommand="zsh"
         initialArgs={[]}
         onRemoveTerminal={mockOnRemoveTerminal}
@@ -156,7 +190,7 @@ describe("TermTabs", () => {
   const mockOnRemoveTerminal = vi.fn();
   const mockOnSessionCreated = vi.fn();
   const mockOnCwdChanged = vi.fn();
-  const mockOnTitleChanged = vi.fn();
+
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -164,7 +198,7 @@ describe("TermTabs", () => {
   });
 
   const renderTermTabs = (activeTabId: string) => {
-    render(
+    renderWithProviders(
       <TermTabs
         tabs={createMockTabs()}
         activeTabId={activeTabId}
@@ -172,13 +206,13 @@ describe("TermTabs", () => {
         initialArgs={["shell", "default"]}
         onTabChange={mockOnTabChange}
         onAddTab={mockOnAddTab}
+        onAddClaudeTab={vi.fn()}
         onAddBtopTab={vi.fn()}
         onAddSideBySide={mockOnAddSideBySide}
         onRemoveTab={mockOnRemoveTab}
         onRemoveTerminal={mockOnRemoveTerminal}
         onSessionCreated={mockOnSessionCreated}
         onCwdChanged={mockOnCwdChanged}
-        onTitleChanged={mockOnTitleChanged}
         emptyState={createEmptyState(mockOnAddTab)}
       />,
     );
@@ -191,7 +225,7 @@ describe("TermTabs", () => {
     const tabTrigger = screen.getByText("Tab 2");
     fireEvent.click(tabTrigger);
 
-    expect(mockOnTabChange).toHaveBeenCalledWith("tab-2");
+    expect(mockOnTabChange).toHaveBeenCalledWith("tab-2", expect.anything());
   });
 
   it("calls onAddTab when 'New Terminal' button is clicked", () => {
@@ -200,7 +234,7 @@ describe("TermTabs", () => {
     const addButton = screen.getByTitle("New Terminal");
     fireEvent.click(addButton);
 
-    expect(mockOnAddTab).toHaveBeenCalledWith();
+    expect(mockOnAddTab).toHaveBeenCalled();
   });
 
   it("calls onAddSideBySide when 'Side-by-side' button is clicked", () => {

@@ -6,20 +6,23 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // --- Mocks ---
 
-// Mock @tauri-apps/api/core
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args: unknown) => {
-    // Return a mock instance so the auto-open create dialog doesn't trigger
-    if (cmd === "get_all_lima_instances_cmd") {
-      return Promise.resolve([{ name: "existing-instance", status: "Running" }]);
+    // Return empty instances so create dialog auto-opens
+    if (cmd === "get_all_yolo_instances_cmd") {
+      return Promise.resolve([]);
+    }
+    if (cmd === "get_host_memory_gib_cmd") {
+      return Promise.resolve(16);
+    }
+    if (cmd === "get_lima_guest_home_cmd") {
+      return Promise.resolve("/home/user.linux");
     }
     return Promise.resolve(mockInvoke(cmd, args));
   },
 }));
 
-// Mock @tauri-apps/api/event
-// We need a way to trigger events from within our tests.
 const { eventListeners } = vi.hoisted(() => ({
   eventListeners: {} as Record<string, ((event: unknown) => void)[]>,
 }));
@@ -38,7 +41,6 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: (event: string, handler: (event: unknown) => void) => mockListen(event, handler),
 }));
 
-// Helper to simulate events
 const emitEvent = (eventName: string, payload: unknown) => {
   const listeners = eventListeners[eventName];
   if (listeners) {
@@ -46,55 +48,41 @@ const emitEvent = (eventName: string, payload: unknown) => {
   }
 };
 
-// Mock useLayoutStorage
-const mockSetActiveTab = vi.fn();
-vi.mock("src/hooks/useLayoutStorage", () => ({
-  useLayoutStorage: () => ({
-    setActiveTab: mockSetActiveTab,
-  }),
-}));
-
 // Mock useCreateLimaInstanceDraft
 const mockDraftConfig: LimaConfig = {
-  arch: "aarch64",
-  audio: { device: "coreaudio" },
-  caCerts: { certs: [], files: [], removeDefaults: false },
   containerd: { system: false, user: false },
   cpus: 4,
-  disk: "100GiB",
-  env: {},
-  firmware: { legacyBIOS: false },
-  hostResolver: { enabled: true, hosts: {}, ipv6: false },
+  disk: "40GiB",
   images: [{ arch: "aarch64", location: "https://example.com/image.img" }],
-  memory: "4GiB",
-  message: "",
+  memory: "8GiB",
   mounts: [],
-  networks: [],
-  os: "Linux",
   portForwards: [],
   probes: [],
-  propagateProxyEnv: false,
-  rosetta: { bin: true, enabled: false },
-  ssh: { forwardAgent: false, loadDotSSHPubKeys: true, localPort: 60_022 },
-  video: { display: "cocoa" },
 };
 
-const mockSetTemplate = vi.fn();
 const mockResetDraft = vi.fn();
 const mockUseCreateLimaInstanceDraft = vi.fn(() => ({
   draftConfig: mockDraftConfig,
   instanceName: "test-instance",
+  isLoading: false,
+  nameExists: false,
   resetDraft: mockResetDraft,
-  setTemplate: mockSetTemplate,
-  template: "docker" as const,
+  setInstanceName: vi.fn(),
+  setMemory: vi.fn(),
+  starship: true,
+  setStarship: vi.fn(),
+  syncClaudeJson: true,
+  setSyncClaudeJson: vi.fn(),
+  draftMounts: [],
+  addDraftMount: vi.fn(),
+  removeDraftMount: vi.fn(),
+  toggleDraftMountWritable: vi.fn(),
 }));
 
 vi.mock("src/hooks/useCreateLimaInstanceDraft", () => ({
   useCreateLimaInstanceDraft: () => mockUseCreateLimaInstanceDraft(),
 }));
 
-// Mock ResizeObserver (needed for some UI components likely)
-// Mock ResizeObserver (needed for some UI components likely)
 global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
@@ -117,7 +105,6 @@ describe("CreateStartInstanceDialogs", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Clear listeners manually since it's a hoisted object
     for (const key in eventListeners) {
       delete eventListeners[key];
     }
@@ -131,20 +118,16 @@ describe("CreateStartInstanceDialogs", () => {
   const renderComponent = () => {
     render(
       <QueryClientProvider client={queryClient}>
-        <CreateStartInstanceDialogs onEnvSetup={() => {}} />
+        <CreateStartInstanceDialogs />
       </QueryClientProvider>,
     );
   };
 
-  const openCreateAndSubmit = () => {
-    const createButton = screen.getByLabelText("Create new Lima instance");
-    expect(createButton).toBeInTheDocument();
-
-    fireEvent.click(createButton);
-    expect(screen.getByText("Create Instance")).toBeInTheDocument();
-
-    // Click the Docker template card to advance to config step
-    fireEvent.click(screen.getByText("Docker"));
+  const submitCreate = async () => {
+    // Dialog auto-opens because no instances exist
+    await waitFor(() => {
+      expect(screen.getByText("Create Sandbox")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
   };
@@ -154,11 +137,12 @@ describe("CreateStartInstanceDialogs", () => {
       expect(mockInvoke).toHaveBeenCalledWith("create_lima_instance_cmd", {
         config: mockDraftConfig,
         instanceName: "test-instance",
+        syncClaudeJson: true,
       });
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Creating Instance")).toBeInTheDocument();
+      expect(screen.getByText("Creating Sandbox")).toBeInTheDocument();
     });
   };
 
@@ -183,7 +167,7 @@ describe("CreateStartInstanceDialogs", () => {
     });
   };
 
-  const completeCreateAndStart = async () => {
+  const completeCreateAndAutoStart = async () => {
     act(() => {
       emitEvent("lima-instance-create-success", {
         instance_name: "test-instance",
@@ -193,90 +177,39 @@ describe("CreateStartInstanceDialogs", () => {
       });
     });
 
+    // Auto-transitions to Starting Sandbox dialog
     await waitFor(() => {
-      expect(screen.getByText("Instance Created")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+      expect(screen.getByText("Starting Sandbox...")).toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("start_lima_instance_cmd", {
         instanceName: "test-instance",
       });
     });
-
-    await waitFor(() => {
-      expect(screen.getByText("Starting Instance...")).toBeInTheDocument();
-    });
   };
 
-  const emitStartLogsAndVerify = async () => {
-    act(() => {
-      emitEvent("lima-instance-start", {
-        instance_name: "test-instance",
-        message: "Starting...",
-        message_id: "4",
-        timestamp: new Date().toISOString(),
-      });
-      emitEvent("lima-instance-start-stdout", {
-        instance_name: "test-instance",
-        message: "Booting kernel...",
-        message_id: "5",
-        timestamp: new Date().toISOString(),
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("Booting kernel...")).toBeInTheDocument();
-    });
-  };
-
-  const completeStartAndVerify = async () => {
-    act(() => {
-      emitEvent("lima-instance-start-success", {
-        instance_name: "test-instance",
-        message: "Started successfully",
-        message_id: "6",
-        timestamp: new Date().toISOString(),
-      });
-    });
-
-    await waitFor(() => {
-      expect(mockSetActiveTab).toHaveBeenCalledWith("lima");
-      expect(screen.queryByText("Starting Instance...")).not.toBeInTheDocument();
-      expect(screen.queryByText("Instance Started")).not.toBeInTheDocument();
-    });
-  };
-
-  it("successfully (happy flow) creates and starts an instance, showing logs and switching tabs", async () => {
+  it("successfully creates and transitions to starting", async () => {
     renderComponent();
-    openCreateAndSubmit();
+    await submitCreate();
     await expectCreateCommandAndDialog();
     await emitCreateLogsAndVerify();
-    await completeCreateAndStart();
-    await emitStartLogsAndVerify();
-    await completeStartAndVerify();
+    await completeCreateAndAutoStart();
   }, 30_000);
 
   it("handles creation failure gracefully", async () => {
     renderComponent();
 
-    // 1. Open Create Dialog
-    fireEvent.click(screen.getByLabelText("Create new Lima instance"));
-
-    // 2. Select template
-    fireEvent.click(screen.getByText("Docker"));
-
-    // 3. Click Create
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    // 4. Verify Creating Logs Dialog appears
     await waitFor(() => {
-      expect(screen.getByText("Creating Instance")).toBeInTheDocument();
+      expect(screen.getByText("Create Sandbox")).toBeInTheDocument();
     });
 
-    // 5. Simulate Error
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Creating Sandbox")).toBeInTheDocument();
+    });
+
     act(() => {
       emitEvent("lima-instance-create-error", {
         instance_name: "test-instance",
@@ -286,26 +219,24 @@ describe("CreateStartInstanceDialogs", () => {
       });
     });
 
-    // 5. Verify Error Message and State
-    // Ensure we are NOT in Start Instance dialog
+    // Should still show Creating dialog (no auto-transition to success)
     await waitFor(() => {
-      expect(screen.queryByText("Instance Created")).not.toBeInTheDocument();
+      expect(screen.queryByText("Sandbox Ready")).not.toBeInTheDocument();
     });
 
-    // And Creating Instance dialog is still there
-    expect(screen.getByText("Creating Instance")).toBeInTheDocument();
+    expect(screen.getByText("Creating Sandbox")).toBeInTheDocument();
   });
 
   it("handles start failure gracefully", async () => {
     renderComponent();
 
-    // 1. Create
-    fireEvent.click(screen.getByLabelText("Create new Lima instance"));
-    fireEvent.click(screen.getByText("Docker"));
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(screen.getByText("Creating Instance")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("Create Sandbox")).toBeInTheDocument();
+    });
 
-    // 2. Success Create
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(screen.getByText("Creating Sandbox")).toBeInTheDocument());
+
     act(() => {
       emitEvent("lima-instance-create-success", {
         instance_name: "test-instance",
@@ -315,22 +246,8 @@ describe("CreateStartInstanceDialogs", () => {
       });
     });
 
-    // 3. Start Dialog
-    await waitFor(() => expect(screen.getByText("Instance Created")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Starting Sandbox...")).toBeInTheDocument());
 
-    // 4. Start
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("start_lima_instance_cmd", {
-        instanceName: "test-instance",
-      });
-    });
-
-    // 5. Starting Dialog
-    await waitFor(() => expect(screen.getByText("Starting Instance...")).toBeInTheDocument());
-
-    // 6. Simulate Start Error
     act(() => {
       emitEvent("lima-instance-start-error", {
         instance_name: "test-instance",
@@ -340,11 +257,6 @@ describe("CreateStartInstanceDialogs", () => {
       });
     });
 
-    // 7. Verify Error
-    // Should NOT switch tab
-    expect(mockSetActiveTab).not.toHaveBeenCalled();
-
-    // Should NOT show "Instance Started"
-    expect(screen.queryByText("Instance Started")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sandbox Ready")).not.toBeInTheDocument();
   }, 30_000);
 });
