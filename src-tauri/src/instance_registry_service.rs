@@ -163,9 +163,12 @@ async fn get_lima_instances() -> Result<Vec<LimaInstance>, String> {
     Ok(instances)
 }
 
-/// Get all Lima instances from limactl list --json (the source of truth)
-pub async fn get_all_lima_instances() -> Result<Vec<LimaInstance>, String> {
+/// Get all yolo-* Lima instances from limactl list --json (the source of truth)
+pub async fn get_all_yolo_instances() -> Result<Vec<LimaInstance>, String> {
     let mut instances = get_lima_instances().await?;
+
+    // Only include yolo-* instances
+    instances.retain(|i| i.name.starts_with("yolo-"));
 
     // Sort instances by name
     instances.sort_by(|a, b| a.name.cmp(&b.name));

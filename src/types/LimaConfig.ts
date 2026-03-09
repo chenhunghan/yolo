@@ -50,8 +50,6 @@ export function isSocketForward(pf: PortForward): boolean {
   return !!pf.guestSocket || !!pf.hostSocket;
 }
 
-export type InstanceTemplate = "docker" | "kubernetes";
-
 export interface LimaConfig {
   minimumLimaVersion?: string;
   vmType?: string;

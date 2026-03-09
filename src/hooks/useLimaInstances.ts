@@ -10,12 +10,12 @@ export function useLimaInstances() {
     refetch: loadInstances,
   } = useQuery({
     queryFn: async () => {
-      const registeredInstances = await invoke<LimaInstance[]>("get_all_lima_instances_cmd");
-      return registeredInstances;
+      return await invoke<LimaInstance[]>("get_all_yolo_instances_cmd");
     },
     queryKey: ["instances"],
     refetchOnWindowFocus: "always",
-    staleTime: 30_000, // Consider data stale after 30 seconds
+    refetchInterval: 5_000, // Poll every 5 seconds to keep status fresh
+    staleTime: 5_000,
   });
 
   return {

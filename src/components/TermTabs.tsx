@@ -2,7 +2,7 @@ import { useCallback, type KeyboardEvent, type MouseEvent, type ReactNode } from
 import { Tabs, TabsList, TabsTrigger } from "src/components/ui/tabs";
 import { Separator } from "src/components/ui/separator";
 import { Button } from "src/components/ui/button";
-import { ActivityIcon, Columns2Icon, Loader2, SquarePlusIcon, Terminal as TerminalIcon, XIcon } from "lucide-react";
+import { ActivityIcon, Columns2Icon, ShrimpIcon, SquarePlusIcon, Terminal as TerminalIcon, XIcon } from "lucide-react";
 import { useIsMobile } from "src/hooks/useMediaQuery";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "src/components/ui/resizable";
 import type { Terminal } from "src/services/Terminal";
@@ -24,24 +24,20 @@ interface Props {
   initialArgs: string[];
   onTabChange: (id: string) => void;
   onAddTab: () => void;
+  onAddClaudeTab: () => void;
   onAddBtopTab: () => void;
   onAddSideBySide: (tabId: string) => void;
   onRemoveTab: (tabId: string) => void;
   onRemoveTerminal: (tabId: string, termId: number) => void;
   onSessionCreated: (tabId: string, termId: number, sessionId: string) => void;
   onCwdChanged: (tabId: string, termId: number, cwd: string) => void;
-  onTitleChanged: (tabId: string, termId: number, title: string) => void;
   emptyState: ReactNode;
   /** Disable adding new terminals (e.g. when instance is not running) */
   addDisabled?: boolean;
 }
 
-function deriveTabDisplayName(tab: TabGroup): string | null {
-  const titles = [...new Set(tab.terminals.map((t) => t.title).filter(Boolean))];
-  if (titles.length > 0) return titles.join(" | ");
-  // Fall back to tab name if it's not the generic default
-  if (tab.name !== "Terminal") return tab.name;
-  return null;
+function deriveTabDisplayName(tab: TabGroup): string {
+  return tab.name;
 }
 
 function TermTabsInner({
@@ -51,13 +47,13 @@ function TermTabsInner({
   initialArgs,
   onTabChange,
   onAddTab,
+  onAddClaudeTab,
   onAddBtopTab,
   onAddSideBySide,
   onRemoveTab,
   onRemoveTerminal,
   onSessionCreated,
   onCwdChanged,
-  onTitleChanged,
   emptyState,
   addDisabled,
 }: Props) {
@@ -91,12 +87,11 @@ function TermTabsInner({
                 <TabsTrigger
                   key={tab.id}
                   value={tab.id}
-                  title={displayName ?? "Loading…"}
+                  title={displayName}
                   className="gap-1.5 px-2.5 h-7 group relative pr-1 border-transparent! data-active:border-transparent!"
                 >
                   <TerminalIcon className="size-3.5" />
-                  {!displayName && <Loader2 className="size-2.5 animate-spin" />}
-                  {!isMobile && displayName && <span className="text-[10px]">{displayName}</span>}
+                  {!isMobile && <span className="text-[10px]">{displayName}</span>}
                   <CloseTabButton tabId={tab.id} onRemoveTab={onRemoveTab} />
                 </TabsTrigger>
               );
@@ -104,6 +99,16 @@ function TermTabsInner({
           </TabsList>
         </Tabs>
 
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onAddClaudeTab}
+          disabled={addDisabled || tabs.length >= 10}
+          title="Claude Code"
+          className="size-7 hover:bg-muted"
+        >
+          <ShrimpIcon className="size-3.5" />
+        </Button>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -169,7 +174,6 @@ function TermTabsInner({
                       initialArgs={initialArgs}
                       onSessionCreated={onSessionCreated}
                       onCwdChanged={onCwdChanged}
-                      onTitleChanged={onTitleChanged}
                       onRemoveTerminal={onRemoveTerminal}
                     />
                   ) : (
@@ -182,7 +186,7 @@ function TermTabsInner({
                           initialArgs={initialArgs}
                           onSessionCreated={onSessionCreated}
                           onCwdChanged={onCwdChanged}
-                          onTitleChanged={onTitleChanged}
+
                           onRemoveTerminal={onRemoveTerminal}
                           isUpperRow
                         />
@@ -196,7 +200,7 @@ function TermTabsInner({
                           initialArgs={initialArgs}
                           onSessionCreated={onSessionCreated}
                           onCwdChanged={onCwdChanged}
-                          onTitleChanged={onTitleChanged}
+
                           onRemoveTerminal={onRemoveTerminal}
                         />
                       </ResizablePanel>
@@ -246,14 +250,14 @@ function CloseTabButton({
   );
 
   return (
-    <span
+    <button
+      type="button"
       className="rounded-sm opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20 p-0.5 transition-all ml-1"
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      tabIndex={0}
       title="Close Tab"
     >
       <XIcon className="size-3" />
-    </span>
+    </button>
   );
 }

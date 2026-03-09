@@ -52,8 +52,8 @@ function CreatingInstanceDialogContent({
   return (
     <DialogContent className="sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>Creating Instance</DialogTitle>
-        <DialogDescription>Creating a new Lima instance</DialogDescription>
+        <DialogTitle>Creating Sandbox</DialogTitle>
+        <DialogDescription>Setting up your isolated sandbox environment</DialogDescription>
       </DialogHeader>
       {children}
       <DialogFooter>

@@ -1,8 +1,6 @@
 use crate::find_lima_executable;
 use crate::lima_config::LimaConfig;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as TokioCommand;
@@ -82,14 +80,10 @@ pub async fn start_lima_instance(app: AppHandle, instance_name: String) -> Resul
             }
         };
 
-        // Track whether the ready event has been emitted (shared across stdout/stderr tasks)
-        let ready_emitted = Arc::new(AtomicBool::new(false));
-
         // Stream stdout
         if let Some(stdout) = child.stdout.take() {
             let app_handle_stdout = app_handle.clone();
             let instance_name_stdout = instance_name_clone.clone();
-            let ready_emitted_stdout = ready_emitted.clone();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout).lines();
 
@@ -98,22 +92,6 @@ pub async fn start_lima_instance(app: AppHandle, instance_name: String) -> Resul
                         "lima-instance-start-stdout",
                         create_log_payload(instance_name_stdout.clone(), line.clone()),
                     );
-
-                    if !ready_emitted_stdout.load(Ordering::Relaxed)
-                        && (line.contains("Waiting for the optional requirement")
-                            || (line.contains("optional requirement") && line.contains("msg"))
-                            || line.contains("The optional requirement")
-                                && line.contains("is satisfied"))
-                    {
-                        ready_emitted_stdout.store(true, Ordering::Relaxed);
-                        let _ = app_handle_stdout.emit(
-                            "lima-instance-start-ready",
-                            create_log_payload(
-                                instance_name_stdout.clone(),
-                                format!("Instance '{}' is ready for use (waiting for optional hooks to complete)", instance_name_stdout),
-                            ),
-                        );
-                    }
                 }
             });
         }
@@ -124,7 +102,6 @@ pub async fn start_lima_instance(app: AppHandle, instance_name: String) -> Resul
             let app_handle_stderr = app_handle.clone();
             let instance_name_stderr = instance_name_clone.clone();
             let stderr_lines_clone = stderr_lines.clone();
-            let ready_emitted_stderr = ready_emitted.clone();
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr).lines();
 
@@ -134,22 +111,6 @@ pub async fn start_lima_instance(app: AppHandle, instance_name: String) -> Resul
                         "lima-instance-start-stderr",
                         create_log_payload(instance_name_stderr.clone(), line.clone()),
                     );
-
-                    if !ready_emitted_stderr.load(Ordering::Relaxed)
-                        && (line.contains("Waiting for the optional requirement")
-                            || (line.contains("optional requirement") && line.contains("msg"))
-                            || line.contains("The optional requirement")
-                                && line.contains("is satisfied"))
-                    {
-                        ready_emitted_stderr.store(true, Ordering::Relaxed);
-                        let _ = app_handle_stderr.emit(
-                            "lima-instance-start-ready",
-                            create_log_payload(
-                                instance_name_stderr.clone(),
-                                format!("Instance '{}' is ready for use (waiting for optional hooks to complete)", instance_name_stderr),
-                            ),
-                        );
-                    }
                 }
             }))
         } else {
@@ -164,18 +125,68 @@ pub async fn start_lima_instance(app: AppHandle, instance_name: String) -> Resul
         match wait_result {
             Ok(status) => {
                 if status.success() {
-                    // Emit ready event if it was never emitted during startup.
-                    // This happens when the config has no probes (e.g. Docker-only
-                    // template), so Lima never outputs "optional requirement" messages.
-                    if !ready_emitted.load(Ordering::Relaxed) {
-                        let _ = app_handle.emit(
-                            "lima-instance-start-ready",
-                            create_log_payload(
-                                instance_name_clone.clone(),
-                                format!("Instance '{}' is ready for use", instance_name_clone),
-                            ),
-                        );
+                    // Copy ~/.claude.json into the guest if marker exists
+                    let lima_home = std::env::var("LIMA_HOME").unwrap_or_else(|_| {
+                        let home = std::env::var("HOME").unwrap_or_default();
+                        format!("{home}/.lima")
+                    });
+                    let marker = std::path::PathBuf::from(&lima_home)
+                        .join(&instance_name_clone)
+                        .join(SYNC_CLAUDE_JSON_MARKER);
+                    if marker.exists() {
+                        if let Ok(home) = std::env::var("HOME") {
+                            let host_user = std::env::var("USER")
+                                .or_else(|_| std::env::var("LOGNAME"))
+                                .unwrap_or_default();
+                            let guest_home = format!("/home/{host_user}.linux");
+
+                            // Copy ~/.claude.json (app config/preferences)
+                            let claude_json = std::path::PathBuf::from(&home).join(".claude.json");
+                            if claude_json.exists() {
+                                let dest =
+                                    format!("{}:{guest_home}/.claude.json", &instance_name_clone);
+                                let _ = TokioCommand::new(&lima_cmd)
+                                    .args(["cp", &claude_json.to_string_lossy(), &dest])
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::null())
+                                    .stderr(Stdio::null())
+                                    .status()
+                                    .await;
+                            }
+
+                            // Copy ~/.claude/.credentials.json (OAuth tokens)
+                            let credentials =
+                                std::path::PathBuf::from(&home).join(".claude/.credentials.json");
+                            if credentials.exists() {
+                                let _ = TokioCommand::new(&lima_cmd)
+                                    .args([
+                                        "shell",
+                                        &instance_name_clone,
+                                        "--",
+                                        "mkdir",
+                                        "-p",
+                                        &format!("{guest_home}/.claude"),
+                                    ])
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::null())
+                                    .stderr(Stdio::null())
+                                    .status()
+                                    .await;
+                                let dest = format!(
+                                    "{}:{guest_home}/.claude/.credentials.json",
+                                    &instance_name_clone
+                                );
+                                let _ = TokioCommand::new(&lima_cmd)
+                                    .args(["cp", &credentials.to_string_lossy(), &dest])
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::null())
+                                    .stderr(Stdio::null())
+                                    .status()
+                                    .await;
+                            }
+                        }
                     }
+
                     let _ = app_handle.emit(
                         "lima-instance-start-success",
                         create_log_payload(instance_name_clone, "Started".to_string()),
@@ -422,11 +433,6 @@ pub async fn delete_lima_instance(app: AppHandle, instance_name: String) -> Resu
         match wait_result {
             Ok(status) => {
                 if status.success() {
-                    // Clean up shell profile and ~/.kube symlink before emitting success
-                    let _ = crate::lima_config_service::cleanup_env_on_delete(
-                        &app_handle,
-                        &instance_name_clone,
-                    );
                     let _ = app_handle.emit(
                         "lima-instance-delete-success",
                         create_log_payload(instance_name_clone, "Deleted".to_string()),
@@ -457,10 +463,14 @@ pub async fn delete_lima_instance(app: AppHandle, instance_name: String) -> Resu
     Ok(instance_name)
 }
 
+/// Marker file in the Lima instance directory that enables .claude.json sync on start.
+const SYNC_CLAUDE_JSON_MARKER: &str = "_yolobox_sync_claude_json";
+
 pub async fn create_lima_instance(
     app: AppHandle,
     config: LimaConfig,
     instance_name: String,
+    sync_claude_json: bool,
 ) -> Result<String, String> {
     // Create a temporary config file for limactl create
     let temp_dir = app
@@ -576,6 +586,18 @@ pub async fn create_lima_instance(
         match wait_result {
             Ok(status) => {
                 if status.success() {
+                    // Write sync marker file if user opted in
+                    if sync_claude_json {
+                        let lima_home = std::env::var("LIMA_HOME").unwrap_or_else(|_| {
+                            let home = std::env::var("HOME").unwrap_or_default();
+                            format!("{home}/.lima")
+                        });
+                        let marker = std::path::PathBuf::from(&lima_home)
+                            .join(&instance_name_clone)
+                            .join(SYNC_CLAUDE_JSON_MARKER);
+                        let _ = std::fs::write(&marker, "");
+                    }
+
                     let _ = app_handle.emit(
                         "lima-instance-create-success",
                         create_log_payload(instance_name_clone, "Created".to_string()),

@@ -10,10 +10,11 @@ export function useLimaInstance() {
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: async ({ config, instanceName }: { config: LimaConfig; instanceName: string }) =>
+    mutationFn: async ({ config, instanceName, syncClaudeJson }: { config: LimaConfig; instanceName: string; syncClaudeJson?: boolean }) =>
       await invoke<string>("create_lima_instance_cmd", {
         config,
         instanceName,
+        syncClaudeJson,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instances"] });

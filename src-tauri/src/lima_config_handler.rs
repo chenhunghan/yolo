@@ -1,37 +1,17 @@
-use crate::k8s_service::check_k0s_available;
-use crate::lima_config::{get_default_docker_lima_config, get_default_k0s_lima_config, LimaConfig};
+use crate::lima_config::{get_default_yolobox_config, LimaConfig};
 use crate::lima_config_service;
-use crate::lima_config_service::{
-    append_to_shell_profile, check_env_sh_exists, get_kubeconfig_path, get_lima_yaml_path,
-    write_env_sh, write_lima_yaml,
-};
+use sysinfo::System;
 use tauri::AppHandle;
 
-/// Detect orphaned 0ma env entries in shell profiles (instances that no longer exist)
-#[tauri::command]
-pub async fn detect_orphaned_env_entries_cmd(app: AppHandle) -> Result<Vec<String>, String> {
-    lima_config_service::detect_orphaned_env_entries(&app)
-}
-
-/// Clean up orphaned env entries for the given instance names
-#[tauri::command]
-pub async fn cleanup_orphaned_env_entries_cmd(
-    app: AppHandle,
-    instance_names: Vec<String>,
-) -> Result<(), String> {
-    lima_config_service::cleanup_orphaned_env_entries(&app, &instance_names)
-}
-
-/// Read the Lima YAML configuration (LIMA_CONFIG_FILENAME) for a specific instance by instance name
-/// If the file does not exist, generate the default k0s config
+/// Read the Lima YAML configuration for a specific instance by name.
+/// If the file does not exist, generate the default yolobox config.
 #[tauri::command]
 pub async fn read_lima_yaml_cmd(
     app: AppHandle,
     instance_name: String,
 ) -> Result<LimaConfig, String> {
-    let yaml_path = get_lima_yaml_path(&app, &instance_name)?;
+    let yaml_path = lima_config_service::get_lima_yaml_path(&app, &instance_name)?;
 
-    // If the file exists, read it
     if yaml_path.exists() {
         let yaml_content = std::fs::read_to_string(&yaml_path)
             .map_err(|e| format!("Failed to read lima.yaml: {}", e))?;
@@ -39,79 +19,41 @@ pub async fn read_lima_yaml_cmd(
             .map_err(|e| format!("Failed to parse YAML: {}", e));
     }
 
-    // Otherwise, generate and return the default config
-    get_default_k0s_lima_config(&app, &instance_name, true, true)
+    get_default_yolobox_config(&app)
 }
 
-/// Write YAML with for a specific instance
+/// Write YAML config for a specific instance
 #[tauri::command]
 pub async fn write_lima_yaml_cmd(
     app: AppHandle,
     config: LimaConfig,
     instance_name: String,
 ) -> Result<(), String> {
-    write_lima_yaml(&app, &config, &instance_name)
+    lima_config_service::write_lima_yaml(&app, &config, &instance_name)
 }
 
-/// Get the path to the Lima YAML configuration file for an instance
+/// Get the default YoloBox Lima configuration
 #[tauri::command]
-pub async fn get_lima_yaml_path_cmd(
-    app: AppHandle,
-    instance_name: String,
-) -> Result<String, String> {
-    let path = get_lima_yaml_path(&app, &instance_name)?;
-    Ok(path.to_string_lossy().to_string())
+pub async fn get_default_yolobox_config_yaml_cmd(app: AppHandle) -> Result<LimaConfig, String> {
+    get_default_yolobox_config(&app)
 }
 
-/// Reset the instance's Lima YAML configuration to the default k0s config
+/// Get the Lima guest home directory path for the current host user
 #[tauri::command]
-pub async fn reset_lima_yaml_cmd(
-    app: AppHandle,
-    instance_name: String,
-) -> Result<LimaConfig, String> {
-    // Generate the default config
-    let default_config = get_default_k0s_lima_config(&app, &instance_name, true, true)?;
-
-    // Write it to disk
-    write_lima_yaml(&app, &default_config, &instance_name)?;
-
-    // Return the config
-    Ok(default_config)
+pub async fn get_lima_guest_home_cmd() -> Result<String, String> {
+    let host_user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .map_err(|_| "Could not determine host username".to_string())?;
+    Ok(format!("/home/{host_user}.linux"))
 }
 
-/// Get the default k0s Lima configuration for an instance
+/// Get total host memory in GiB
 #[tauri::command]
-pub async fn get_default_k0s_lima_config_yaml_cmd(
-    app: AppHandle,
-    instance_name: String,
-    install_helm: Option<bool>,
-    install_local_path_provisioner: Option<bool>,
-) -> Result<LimaConfig, String> {
-    get_default_k0s_lima_config(
-        &app,
-        &instance_name,
-        install_helm.unwrap_or(true),
-        install_local_path_provisioner.unwrap_or(true),
-    )
-}
-
-/// Get the default Docker-only Lima configuration for an instance (no k0s/Kubernetes)
-#[tauri::command]
-pub async fn get_default_docker_lima_config_yaml_cmd(
-    app: AppHandle,
-    instance_name: String,
-) -> Result<LimaConfig, String> {
-    get_default_docker_lima_config(&app, &instance_name)
-}
-
-/// Get the kubeconfig path for a specific instance
-#[tauri::command]
-pub async fn get_kubeconfig_path_cmd(
-    app: AppHandle,
-    instance_name: String,
-) -> Result<String, String> {
-    let kubeconfig_path = get_kubeconfig_path(&app, &instance_name)?;
-    Ok(kubeconfig_path.to_string_lossy().to_string())
+pub async fn get_host_memory_gib_cmd() -> Result<u32, String> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let host_memory_gib = (sys.total_memory() / (1024 * 1024 * 1024)) as u32;
+    Ok(host_memory_gib)
 }
 
 /// Convert LimaConfig to YAML string for display
@@ -122,28 +64,83 @@ pub async fn convert_config_to_yaml_cmd(config: LimaConfig) -> Result<String, St
         .map_err(|e| format!("Failed to convert config to YAML: {}", e))
 }
 
-/// Write env.sh for the given instance and return its absolute path.
-/// Automatically detects whether k8s (k0s/kubectl) is available in the instance.
+/// Check if a path is a directory
 #[tauri::command]
-pub async fn write_env_sh_cmd(app: AppHandle, instance_name: String) -> Result<String, String> {
-    let k8s_available = check_k0s_available(&instance_name).unwrap_or(false);
-    write_env_sh(&app, &instance_name, k8s_available)
+pub async fn is_directory_cmd(path: String) -> Result<bool, String> {
+    Ok(std::path::Path::new(&path).is_dir())
 }
 
-/// Check whether env.sh already exists for the given instance
+/// Add a mount to an instance by editing the YAML directly.
+/// Instance must be stopped.
 #[tauri::command]
-pub async fn check_env_sh_exists_cmd(
+pub async fn add_mount_cmd(
     app: AppHandle,
     instance_name: String,
-) -> Result<bool, String> {
-    check_env_sh_exists(&app, &instance_name)
+    host_path: String,
+    mount_point: String,
+    writable: bool,
+) -> Result<(), String> {
+    let yaml_path = lima_config_service::get_lima_yaml_path(&app, &instance_name)?;
+    let yaml_content = std::fs::read_to_string(&yaml_path)
+        .map_err(|e| format!("Failed to read lima.yaml: {}", e))?;
+    let mut config =
+        LimaConfig::from_yaml(&yaml_content).map_err(|e| format!("Failed to parse YAML: {}", e))?;
+
+    let new_mount = crate::lima_config::Mount {
+        location: Some(host_path),
+        mount_point: Some(mount_point),
+        writable: Some(writable),
+    };
+
+    match config.mounts {
+        Some(ref mut mounts) => mounts.push(new_mount),
+        None => config.mounts = Some(vec![new_mount]),
+    }
+
+    lima_config_service::write_lima_yaml(&app, &config, &instance_name)
 }
 
-/// Append env.sh source line to the user's shell profile
+/// Remove a mount from an instance by editing the YAML directly.
+/// Instance must be stopped.
 #[tauri::command]
-pub async fn append_env_to_shell_profile_cmd(
+pub async fn remove_mount_cmd(
     app: AppHandle,
     instance_name: String,
-) -> Result<String, String> {
-    append_to_shell_profile(&app, &instance_name)
+    host_path: String,
+) -> Result<(), String> {
+    let yaml_path = lima_config_service::get_lima_yaml_path(&app, &instance_name)?;
+    let yaml_content = std::fs::read_to_string(&yaml_path)
+        .map_err(|e| format!("Failed to read lima.yaml: {}", e))?;
+    let mut config =
+        LimaConfig::from_yaml(&yaml_content).map_err(|e| format!("Failed to parse YAML: {}", e))?;
+
+    if let Some(ref mut mounts) = config.mounts {
+        mounts.retain(|m| m.location.as_deref() != Some(&host_path));
+    }
+
+    lima_config_service::write_lima_yaml(&app, &config, &instance_name)
+}
+
+/// Copy a file from host to guest via `limactl cp`
+#[tauri::command]
+pub async fn copy_file_to_guest_cmd(
+    instance_name: String,
+    host_path: String,
+    guest_path: String,
+) -> Result<(), String> {
+    let lima_cmd = crate::find_lima_executable().ok_or("Lima (limactl) not found")?;
+
+    let dest = format!("{}:{}", instance_name, guest_path);
+    let output = tokio::process::Command::new(&lima_cmd)
+        .args(["cp", &host_path, &dest])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run limactl cp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to copy file: {}", stderr));
+    }
+
+    Ok(())
 }

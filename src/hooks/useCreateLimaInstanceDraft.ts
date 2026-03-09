@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { useTauriStore, useTauriStoreValue } from "src/providers/tauri-store-provider";
-import type { InstanceTemplate, LimaConfig } from "src/types/LimaConfig";
-import { useDefaultDockerLimaConfig } from "./useDefaultDockerLimaConfig";
-import { useDefaultK0sLimaConfig } from "./useDefaultK0sLimaConfig";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { LimaConfig, Mount } from "src/types/LimaConfig";
+import { useDefaultYoloboxConfig } from "./useDefaultYoloboxConfig";
 import { useLimaInstances } from "./useLimaInstances";
 
-const NEW_INSTANCE_DRAFT_KEY = "newLimaInstanceDraft";
-const NEW_INSTANCE_NAME_KEY = "newLimaInstanceName";
-const NEW_INSTANCE_TEMPLATE_KEY = "newLimaInstanceTemplate";
+function folderName(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? "folder";
+}
 
-const DEFAULT_TEMPLATE: InstanceTemplate = "docker";
+const STARSHIP_MARKER = "starship";
 
 const generateInstanceName = (existingNames?: Set<string>) => {
   for (let i = 0; i < 10; i++) {
@@ -20,13 +19,9 @@ const generateInstanceName = (existingNames?: Set<string>) => {
 };
 
 /**
- * Hook to manage a draft Lima configuration for creating a NEW instance.
- * Stored in Tauri Store under a fixed key.
- *
- * Fetches both Docker and Kubernetes defaults upfront so template switching is instant.
+ * Hook to manage a draft Lima configuration for creating a NEW yolobox instance.
  */
 export function useCreateLimaInstanceDraft() {
-  const { set } = useTauriStore();
   const { instances } = useLimaInstances();
 
   const existingNames = useMemo(
@@ -34,110 +29,84 @@ export function useCreateLimaInstanceDraft() {
     [instances],
   );
 
-  // Fetch both default configurations unconditionally — react-query caches both
-  const { defaultConfig: dockerDefault, isLoading: isLoadingDocker } =
-    useDefaultDockerLimaConfig("yolo");
-  const { defaultConfig: k8sDefault, isLoading: isLoadingK8s } = useDefaultK0sLimaConfig("yolo");
+  const { defaultConfig, isLoading: isLoadingDefault } = useDefaultYoloboxConfig();
 
-  const { data: draftConfig, isLoading: isLoadingStoreConfig } =
-    useTauriStoreValue<LimaConfig>(NEW_INSTANCE_DRAFT_KEY);
+  const [instanceName, setInstanceName] = useState(() => generateInstanceName());
+  const [memory, setMemory] = useState<string | undefined>(undefined);
+  const [starship, setStarship] = useState(true);
+  const [syncClaudeJson, setSyncClaudeJson] = useState(true);
+  const [draftMounts, setDraftMounts] = useState<Mount[]>([]);
+  const [guestHome, setGuestHome] = useState("/home/user.linux");
 
-  const { data: instanceName, isLoading: isLoadingStoreName } =
-    useTauriStoreValue<string>(NEW_INSTANCE_NAME_KEY);
-
-  const { data: currentTemplate, isLoading: isLoadingStoreTemplate } =
-    useTauriStoreValue<InstanceTemplate>(NEW_INSTANCE_TEMPLATE_KEY);
-
-  const template: InstanceTemplate = currentTemplate || DEFAULT_TEMPLATE;
-
-  const activeDefault = template === "kubernetes" ? k8sDefault : dockerDefault;
-
-  // Initialize the draft from the active template's default config.
   useEffect(() => {
-    if (activeDefault && !draftConfig) {
-      set(NEW_INSTANCE_DRAFT_KEY, activeDefault);
+    invoke<string>("get_lima_guest_home_cmd").then(setGuestHome).catch(() => {});
+  }, []);
+
+  const addDraftMount = useCallback((hostPath: string, writable: boolean) => {
+    setDraftMounts((prev) => [
+      ...prev,
+      { location: hostPath, mountPoint: `${guestHome}/${folderName(hostPath)}`, writable },
+    ]);
+  }, [guestHome]);
+
+  const removeDraftMount = useCallback((hostPath: string) => {
+    setDraftMounts((prev) => prev.filter((m) => m.location !== hostPath));
+  }, []);
+
+  const toggleDraftMountWritable = useCallback((hostPath: string) => {
+    setDraftMounts((prev) =>
+      prev.map((m) => m.location === hostPath ? { ...m, writable: !m.writable } : m),
+    );
+  }, []);
+
+  const draftConfig = useMemo<LimaConfig | undefined>(() => {
+    if (!defaultConfig) return undefined;
+    let config = defaultConfig;
+    if (memory) {
+      config = { ...config, memory };
     }
-  }, [activeDefault, draftConfig, set]);
-
-  // Initialize template if missing.
-  useEffect(() => {
-    if (!isLoadingStoreTemplate && !currentTemplate) {
-      set(NEW_INSTANCE_TEMPLATE_KEY, DEFAULT_TEMPLATE);
+    if (!starship && config.provision) {
+      config = {
+        ...config,
+        provision: config.provision.filter((p) => !p.script.includes(STARSHIP_MARKER)),
+      };
     }
-  }, [currentTemplate, isLoadingStoreTemplate, set]);
-
-  // If store name is missing or collides with an existing instance, regenerate it.
-  useEffect(() => {
-    if (!isLoadingStoreName && (!instanceName || existingNames.has(instanceName))) {
-      set(NEW_INSTANCE_NAME_KEY, generateInstanceName(existingNames));
+    if (draftMounts.length > 0) {
+      config = {
+        ...config,
+        mounts: [...(config.mounts ?? []), ...draftMounts],
+      };
     }
-  }, [instanceName, isLoadingStoreName, existingNames, set]);
+    return config;
+  }, [defaultConfig, memory, starship, draftMounts]);
 
-  // Combined loading state
-  const isLoading =
-    isLoadingStoreConfig ||
-    isLoadingStoreName ||
-    isLoadingStoreTemplate ||
-    isLoadingDocker ||
-    isLoadingK8s ||
-    !draftConfig ||
-    !instanceName;
-
-  const updateField = useCallback(
-    (field: keyof LimaConfig, value: unknown) => {
-      if (draftConfig) {
-        set(NEW_INSTANCE_DRAFT_KEY, { ...draftConfig, [field]: value });
-      }
-    },
-    [draftConfig, set],
-  );
-
-  const setInstanceName = useCallback(
-    (name: string) => {
-      set(NEW_INSTANCE_NAME_KEY, name);
-    },
-    [set],
-  );
-
-  const updateDraftConfig = useCallback(
-    (newConfig: LimaConfig) => {
-      set(NEW_INSTANCE_DRAFT_KEY, newConfig);
-    },
-    [set],
-  );
-
-  const setTemplate = useCallback(
-    (t: InstanceTemplate) => {
-      set(NEW_INSTANCE_TEMPLATE_KEY, t);
-      const newDefault = t === "kubernetes" ? k8sDefault : dockerDefault;
-      if (newDefault) {
-        set(NEW_INSTANCE_DRAFT_KEY, newDefault);
-      }
-    },
-    [set, dockerDefault, k8sDefault],
-  );
+  const isLoading = isLoadingDefault || !draftConfig;
 
   const resetDraft = useCallback(() => {
-    const defaultForReset = dockerDefault;
-    if (defaultForReset) {
-      set(NEW_INSTANCE_DRAFT_KEY, defaultForReset);
-      set(NEW_INSTANCE_NAME_KEY, generateInstanceName(existingNames));
-      set(NEW_INSTANCE_TEMPLATE_KEY, DEFAULT_TEMPLATE);
-    }
-  }, [set, dockerDefault, existingNames]);
+    setMemory(undefined);
+    setStarship(true);
+    setSyncClaudeJson(true);
+    setDraftMounts([]);
+    setInstanceName(generateInstanceName(existingNames));
+  }, [existingNames]);
 
-  const nameExists = existingNames.has(instanceName || "");
+  const nameExists = existingNames.has(instanceName);
 
   return {
-    draftConfig: draftConfig,
-    instanceName: instanceName || "",
+    draftConfig,
+    instanceName,
     isLoading,
     nameExists,
     resetDraft,
     setInstanceName,
-    setTemplate,
-    template,
-    updateDraftConfig,
-    updateField,
+    setMemory,
+    starship,
+    setStarship,
+    syncClaudeJson,
+    setSyncClaudeJson,
+    draftMounts,
+    addDraftMount,
+    removeDraftMount,
+    toggleDraftMountWritable,
   };
 }

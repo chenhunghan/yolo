@@ -13,13 +13,12 @@ interface Props {
   initialArgs: string[];
   onSessionCreated: (tabId: string, termId: number, sessionId: string) => void;
   onCwdChanged: (tabId: string, termId: number, cwd: string) => void;
-  onTitleChanged: (tabId: string, termId: number, title: string) => void;
   onRemoveTerminal: (tabId: string, termId: number) => void;
   isUpperRow?: boolean;
 }
 
 export const TerminalRow = React.memo(
-  function TerminalRow({ tabId, terminals, initialCommand, initialArgs, onSessionCreated, onCwdChanged, onTitleChanged, onRemoveTerminal, isUpperRow }: Props) {
+  function TerminalRow({ tabId, terminals, initialCommand, initialArgs, onSessionCreated, onCwdChanged, onRemoveTerminal, isUpperRow }: Props) {
     const isMobile = useIsMobile();
     const { onDragStart, onDragEnd } = useTerminalResizeContext();
     const handleDragging = useCallback(
@@ -55,7 +54,6 @@ export const TerminalRow = React.memo(
                     initialArgs={initialArgs}
                     onSessionCreated={onSessionCreated}
                     onCwdChanged={onCwdChanged}
-                    onTitleChanged={onTitleChanged}
                     isUpperRow={isUpperRow}
                   />
                 </div>
@@ -78,7 +76,7 @@ export const TerminalRow = React.memo(
       prevProps.onRemoveTerminal === nextProps.onRemoveTerminal &&
       prevProps.terminals.length === nextProps.terminals.length &&
       prevProps.terminals.every(
-        (term, i) => term.id === nextProps.terminals[i].id && term.title === nextProps.terminals[i].title,
+        (term, i) => term.id === nextProps.terminals[i].id,
       )
     );
   }
@@ -92,7 +90,6 @@ const TerminalPanel = React.memo(
     initialArgs,
     onSessionCreated,
     onCwdChanged,
-    onTitleChanged,
     isUpperRow,
   }: {
     tabId: string;
@@ -101,7 +98,6 @@ const TerminalPanel = React.memo(
     initialArgs: string[];
     onSessionCreated: (tabId: string, termId: number, sessionId: string) => void;
     onCwdChanged: (tabId: string, termId: number, cwd: string) => void;
-    onTitleChanged: (tabId: string, termId: number, title: string) => void;
     isUpperRow?: boolean;
   }) {
     const handleSessionCreated = useCallback(
@@ -118,13 +114,6 @@ const TerminalPanel = React.memo(
       [onCwdChanged, tabId, term.id],
     );
 
-    const handleTitleChanged = useCallback(
-      (title: string) => {
-        onTitleChanged(tabId, term.id, title);
-      },
-      [onTitleChanged, tabId, term.id],
-    );
-
     return (
       <TerminalComponent
         initialCommand={term.command ?? initialCommand}
@@ -133,7 +122,6 @@ const TerminalPanel = React.memo(
         sessionId={term.sessionId}
         onSessionCreated={handleSessionCreated}
         onCwdChanged={handleCwdChanged}
-        onTitleChanged={handleTitleChanged}
         isUpperRow={isUpperRow}
       />
     );

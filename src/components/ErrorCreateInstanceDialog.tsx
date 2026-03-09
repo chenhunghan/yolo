@@ -35,7 +35,7 @@ export function ErrorCreateInstanceDialog({ onRetry, onClose, instanceName }: Pr
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="text-destructive">Creation Failed</DialogTitle>
-          <DialogDescription>An error occurred while creating the instance.</DialogDescription>
+          <DialogDescription>An error occurred while creating the sandbox.</DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[300px] overflow-y-auto rounded-md bg-muted p-4 text-sm font-mono text-destructive-foreground">

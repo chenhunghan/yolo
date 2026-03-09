@@ -1,16 +1,12 @@
 use crate::instance_registry_service::{
-    get_all_lima_instances, get_disk_usage, DiskUsage, LimaInstance,
+    get_all_yolo_instances, get_disk_usage, DiskUsage, LimaInstance,
 };
 use tauri::AppHandle;
 
-/// Get all registered YoloBox instances with their current status
-/// Returns instances directly from limactl list --json (the source of truth)
+/// Get all yolo-* Lima instances with their current status
 #[tauri::command]
-pub async fn get_all_lima_instances_cmd(_app: AppHandle) -> Result<Vec<LimaInstance>, String> {
-    // Get instances from limactl (source of truth)
-    let instances = get_all_lima_instances().await?;
-
-    Ok(instances)
+pub async fn get_all_yolo_instances_cmd(_app: AppHandle) -> Result<Vec<LimaInstance>, String> {
+    get_all_yolo_instances().await
 }
 
 /// Check if an instance is registered
@@ -19,7 +15,7 @@ pub async fn is_instance_registered_cmd(
     _app: AppHandle,
     instance_name: String,
 ) -> Result<bool, String> {
-    let instances = get_all_lima_instances().await?;
+    let instances = get_all_yolo_instances().await?;
     Ok(instances.iter().any(|inst| inst.name == instance_name))
 }
 

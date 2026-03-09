@@ -19,7 +19,7 @@ const RESIZE_DEBOUNCE_MS = 200;
  * boundary, clipping it. Subtracting this value (in row units) from the
  * calculated row count keeps every visible row fully within bounds.
  */
-const ROW_ROUNDING_COMPENSATION_DEFAULT = 1.6;
+const ROW_ROUNDING_COMPENSATION_DEFAULT = 0.2;
 /**
  * Reduced compensation for upper-row terminals in multi-row layouts (>5 panes).
  * Upper rows have less accumulated rounding error because the resizable panel

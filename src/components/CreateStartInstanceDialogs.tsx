@@ -4,40 +4,40 @@ import { useCreateLimaInstanceDraft } from "src/hooks/useCreateLimaInstanceDraft
 import { CreateInstanceDialog } from "./CreateInstanceDialog";
 import { CreatingInstanceDialog } from "./CreatingInstanceDialog";
 import { ErrorCreateInstanceDialog } from "./ErrorCreateInstanceDialog";
-import { StartInstanceDialog } from "./StartInstanceDialog";
 import { StartingInstanceDialog } from "./StartingInstanceDialog";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useOnLimaCreateLogs } from "src/hooks/useOnLimaCreateLogs";
-import { useLayoutStorage } from "src/hooks/useLayoutStorage";
 
-// oxlint-disable-next-line max-statements
-export function CreateStartInstanceDialogs({
-  isDeletingDialogOpen,
-  onEnvSetup,
-}: {
-  isDeletingDialogOpen?: boolean;
-  onEnvSetup: (instanceName: string) => void;
-}) {
+interface Props {
+  pendingMountPath?: string | null;
+  onPendingMountConsumed?: () => void;
+}
+
+export function CreateStartInstanceDialogs({ pendingMountPath, onPendingMountConsumed }: Props) {
   const [createDialogUserOpen, setCreateDialogUserOpen] = useState(false);
   const [creatingInstanceDialogOpen, setCreatingInstanceDialogOpen] = useState(false);
-  const [startInstanceDialogOpen, setStartInstanceDialogOpen] = useState(false);
   const [startingInstanceDialogOpen, setStartingInstanceDialogOpen] = useState(false);
 
   const { createInstance, startInstance } = useLimaInstance();
   const { instances, isLoading: isLoadingInstances } = useLimaInstances();
-  const { setActiveTab } = useLayoutStorage();
-  const { draftConfig, instanceName, resetDraft } = useCreateLimaInstanceDraft();
+  const draft = useCreateLimaInstanceDraft();
+  const { draftConfig, instanceName, resetDraft, syncClaudeJson, addDraftMount } = draft;
 
-  // Track the name of the instance being created/started so it survives resetDraft()
-  // and the name-regeneration effect in useCreateLimaInstanceDraft.
   const [createdName, setCreatedName] = useState("");
   const { reset: resetCreateLogs } = useOnLimaCreateLogs(createdName);
 
-  // Open create dialog when user explicitly opens it OR when no instances exist
-  // (but not while the "Instance Deleted" dialog is still open)
+  // Open create dialog when no yolo-* instances exist
   const hasNoInstances = !isLoadingInstances && instances.length === 0;
-  const createInstanceDialogOpen =
-    createDialogUserOpen || (hasNoInstances && !isDeletingDialogOpen);
+  const createInstanceDialogOpen = createDialogUserOpen || hasNoInstances;
+
+  // Handle pending mount from drag-drop when no instance exists
+  useEffect(() => {
+    if (pendingMountPath) {
+      addDraftMount(pendingMountPath, true);
+      setCreateDialogUserOpen(true);
+      onPendingMountConsumed?.();
+    }
+  }, [pendingMountPath, addDraftMount, onPendingMountConsumed]);
 
   const handleCreateInstance = useCallback(() => {
     if (!draftConfig || !instanceName) {
@@ -45,8 +45,8 @@ export function CreateStartInstanceDialogs({
     }
     setCreatedName(instanceName);
     setCreatingInstanceDialogOpen(true);
-    createInstance({ config: draftConfig, instanceName });
-  }, [createInstance, draftConfig, instanceName]);
+    createInstance({ config: draftConfig, instanceName, syncClaudeJson });
+  }, [createInstance, draftConfig, instanceName, syncClaudeJson]);
 
   const handleRetry = useCallback(() => {
     resetCreateLogs();
@@ -57,34 +57,24 @@ export function CreateStartInstanceDialogs({
     resetCreateLogs();
   }, [resetCreateLogs]);
 
-  const handleStartInstance = useCallback(() => {
-    if (createdName) {
-      startInstance(createdName);
-      setStartInstanceDialogOpen(false);
-      setStartingInstanceDialogOpen(true);
-    }
-  }, [createdName, startInstance]);
-
+  // Auto-start after successful creation
   const handleCreateInstanceSuccess = useCallback(() => {
     setCreatingInstanceDialogOpen(false);
-    setStartInstanceDialogOpen(true);
+    setStartingInstanceDialogOpen(true);
+    startInstance(createdName);
     resetDraft();
-  }, [resetDraft]);
+  }, [createdName, startInstance, resetDraft]);
 
   const handleStartInstanceSuccess = useCallback(() => {
     setStartingInstanceDialogOpen(false);
-    setActiveTab("lima");
-    if (createdName) {
-      onEnvSetup(createdName);
-    }
-  }, [setActiveTab, createdName, onEnvSetup]);
+  }, []);
 
   return (
     <>
       <CreateInstanceDialog
-        buttonClassName="ml-[6px]"
         open={createInstanceDialogOpen}
         dismissible={!hasNoInstances}
+        draft={draft}
         onDialogOpenChange={setCreateDialogUserOpen}
         onClickCreate={handleCreateInstance}
       />
@@ -98,13 +88,6 @@ export function CreateStartInstanceDialogs({
         onRetry={handleRetry}
         onClose={handleCloseError}
         instanceName={createdName}
-      />
-      <StartInstanceDialog
-        open={startInstanceDialogOpen}
-        onOpenChange={setStartInstanceDialogOpen}
-        onStart={handleStartInstance}
-        instanceName={createdName}
-        variant="created"
       />
       <StartingInstanceDialog
         open={startingInstanceDialogOpen}

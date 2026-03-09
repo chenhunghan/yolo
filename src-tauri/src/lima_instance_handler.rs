@@ -7,8 +7,15 @@ pub async fn create_lima_instance_cmd(
     app: AppHandle,
     config: LimaConfig,
     instance_name: String,
+    sync_claude_json: Option<bool>,
 ) -> Result<String, String> {
-    lima_instance_service::create_lima_instance(app, config, instance_name).await
+    lima_instance_service::create_lima_instance(
+        app,
+        config,
+        instance_name,
+        sync_claude_json.unwrap_or(true),
+    )
+    .await
 }
 
 #[tauri::command]

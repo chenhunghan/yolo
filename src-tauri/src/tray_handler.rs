@@ -136,7 +136,7 @@ pub async fn refresh_tray_menu(app: &AppHandle) -> Result<(), Box<dyn std::error
         *last_refresh = Instant::now();
     }
 
-    let instances = instance_registry_service::get_all_lima_instances()
+    let instances = instance_registry_service::get_all_yolo_instances()
         .await
         .unwrap_or_default();
 
