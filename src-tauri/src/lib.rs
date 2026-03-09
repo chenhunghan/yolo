@@ -2,8 +2,6 @@ use tauri::{Listener, Manager};
 
 mod instance_registry_handler;
 mod instance_registry_service;
-mod k8s_handler;
-mod k8s_service;
 mod lima_config;
 mod lima_config_handler;
 mod lima_config_service;
@@ -35,7 +33,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(state::AppState {
-                // Initialize last_tray_menu_refresh to 60 seconds ago to ensure the first refresh happens immediately
                 last_tray_menu_refresh: std::sync::Mutex::new(
                     std::time::Instant::now() - std::time::Duration::from_secs(60),
                 ),
@@ -45,7 +42,6 @@ pub fn run() {
             let pty_manager = terminal_manager::PtyManager::new();
             app.manage(pty_manager);
 
-            // Listen for pty-input events
             let pty_manager = app.state::<terminal_manager::PtyManager>().inner().clone();
             let handle = app.handle().clone();
             handle.listen("pty-input", move |event| {
@@ -71,8 +67,6 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // click the red "Close" button $(x)$, intercepts CloseRequested,
-            // calls window.hide(), and cancels the app termination.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
                 api.prevent_close();
@@ -102,18 +96,15 @@ pub fn run() {
             lima_handler::get_system_capabilities_cmd,
             lima_config_handler::read_lima_yaml_cmd,
             lima_config_handler::write_lima_yaml_cmd,
-            lima_config_handler::get_lima_yaml_path_cmd,
-            lima_config_handler::reset_lima_yaml_cmd,
-            lima_config_handler::get_default_k0s_lima_config_yaml_cmd,
-            lima_config_handler::get_default_docker_lima_config_yaml_cmd,
-            lima_config_handler::get_kubeconfig_path_cmd,
+            lima_config_handler::get_default_yolobox_config_yaml_cmd,
             lima_config_handler::convert_config_to_yaml_cmd,
-            lima_config_handler::write_env_sh_cmd,
-            lima_config_handler::check_env_sh_exists_cmd,
-            lima_config_handler::append_env_to_shell_profile_cmd,
-            lima_config_handler::detect_orphaned_env_entries_cmd,
-            lima_config_handler::cleanup_orphaned_env_entries_cmd,
-            instance_registry_handler::get_all_lima_instances_cmd,
+            lima_config_handler::get_host_memory_gib_cmd,
+            lima_config_handler::get_lima_guest_home_cmd,
+            lima_config_handler::is_directory_cmd,
+            lima_config_handler::add_mount_cmd,
+            lima_config_handler::remove_mount_cmd,
+            lima_config_handler::copy_file_to_guest_cmd,
+            instance_registry_handler::get_all_yolo_instances_cmd,
             instance_registry_handler::is_instance_registered_cmd,
             instance_registry_handler::get_instance_disk_usage_cmd,
             instance_registry_handler::get_instance_ip_cmd,
@@ -123,9 +114,6 @@ pub fn run() {
             lima_instance_handler::start_lima_instance_cmd,
             lima_instance_handler::stop_lima_instance_cmd,
             lima_instance_handler::delete_lima_instance_cmd,
-            k8s_handler::check_k0s_available_cmd,
-            k8s_handler::get_k8s_pods_cmd,
-            k8s_handler::get_k8s_services_cmd,
             terminal_manager::spawn_pty_cmd,
             terminal_manager::attach_pty_cmd,
             terminal_manager::write_pty_cmd,
