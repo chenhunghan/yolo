@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/chenhunghan/yolo/compare/v0.3.0...v0.3.1) (2026-03-09)
+
+
+### Bug Fixes
+
+* app icon following Apple design ([7108982](https://github.com/chenhunghan/yolo/commit/7108982742f4504777d3e1c58a24acfa3a20ebe6))
+
 ## [0.3.0](https://github.com/chenhunghan/yolo/compare/v0.2.0...v0.3.0) (2026-03-09)
 
 
