@@ -13,7 +13,8 @@
     "lint:fix": "oxlint --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icons:generate": "tauri icon app-icon.png && node scripts/convert.ts app-icon.png"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
