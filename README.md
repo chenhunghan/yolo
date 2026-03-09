@@ -1,76 +1,57 @@
-# 0ma
+# yolo
 
-A modern, desktop-based GUI for managing [Lima](https://github.com/lima-vm/lima) instances and Kubernetes clusters on macOS.
+A native macOS app that launches isolated Linux VMs pre-configured for vibe coding with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-<img width="1111" height="1118" alt="0ma Screenshot" src="https://github.com/user-attachments/assets/c9c5a346-c511-40e3-b63e-1ae2c1333612" />
+Drop a folder, get a sandbox. Each VM comes with Claude Code CLI, Docker, GitHub CLI, and everything you need — ready in minutes.
 
 ## Features
 
-- 🖥️ **Instance Management**: Easily create, start, stop, and delete Lima virtual machines.
-- ☸️ **Kubernetes Dashboard**: Visual interface for interacting with your K8s clusters (Pods, Services, Nodes).
-- 🐚 **Integrated Terminal**: Built-in terminal for direct shell access to instances and containers.
-- ⚙️ **Config Editor**: Advanced configuration management for `lima.yaml` with syntax highlighting.
-- 🚀 **Performance**: Native macOS application built with Rust and Tauri.
+- **One-click sandbox**: Auto-creates and starts a Lima VM on first launch. No configuration needed.
+- **Drag & drop**: Drop a folder onto the window to mount it into the VM, or drop a file to copy it in.
+- **Integrated terminal**: Built-in terminal with tabs, side-by-side splits, and dedicated Claude Code / btop tabs.
+- **Native performance**: Tauri + Rust backend, React frontend, macOS Virtualization.framework (`vz`).
+
+## What's in the box
+
+Each `yolo-*` VM is provisioned with:
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI (`--dangerously-skip-permissions` ready)
+- Docker, GitHub CLI (`gh`), btop
+- Node.js, Python 3, Bun, Git, curl, jq, vim
+- Starship prompt, zsh as default shell
+- Ubuntu 24.04 (arm64/amd64)
+
+Default VM sizing: half your CPU cores (min 1), 2 GiB RAM, 40 GiB disk.
 
 ## Installation
 
 ### Homebrew (Recommended)
 
 ```bash
-brew install chenhunghan/tap/0ma
+brew install chenhunghan/tap/yolo
 ```
 
 ### Download
 
-Download the latest release for macOS (Apple Silicon/M1/M2/M3):
+Download the latest `.dmg` from [Releases](https://github.com/chenhunghan/yolo/releases), then:
 
-**[⬇️ Download 0ma for macOS](https://github.com/chenhunghan/0ma/releases)**
-
-1. Download the `.dmg` file from the Releases page.
-2. Open the disk image and drag **0ma** to your **Applications** folder.
-3. Remove the quarantine attribute (the binary is unsigned):
+1. Drag **yolo** to **Applications**.
+2. Remove the quarantine attribute (unsigned binary):
    ```bash
-   xattr -cr /Applications/0ma.app
+   xattr -cr /Applications/yolo.app
    ```
-4. Launch 0ma from your Applications directory.
+3. Launch yolo.
 
 ### Build from Source
 
-**Requirements:**
-
-- Node.js (v18+)
-- Rust (latest stable)
-- `limactl` installed and available in PATH
+**Requirements:** Node.js 18+, Rust (stable), [`limactl`](https://github.com/lima-vm/lima) in PATH.
 
 ```bash
-# Clone the repository
-git clone https://github.com/chenhunghan/0ma.git
-cd 0ma
-
-# Install dependencies
+git clone https://github.com/chenhunghan/yolo.git
+cd yolo
 npm install
-
-# Run in development mode
-npm run tauri dev
-
-# Build for production
-npm run tauri build
-```
-
-### App Icon
-
-Generate the app icon using the following prompt:
-
-```markdown
-Use this prompt to generate a new icon png
-```
-
-A bold, ultra-minimalist, solid black 'om' logo on a pure solid white #FFFFFF background with monospace font. The design must be a vector-style flat shape with distinct, thick lines. No gradients, no gray, not in calligraphy style, just #000000 black and #FFFFFF white. The logo MUST be vertical and horizontal centered in the image. Highest resolution for a Mac system tray icon following macOS design guidelines. The file should be in PNG format.
-
-```
-Save the generated image at `./src-tauri/icons/tray-icon-white-path.png`
-
-Finally run this script `node scripts/convert.ts src-tauri/icons/tray-icon-white-path.png src-tauri/icons/tray-icon-black-path.png src-tauri/icons/tray-icon.png` to covert to `tray-icon.png`
+npm run tauri dev      # development
+npm run tauri build    # production
 ```
 
 ## License

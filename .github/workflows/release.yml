@@ -72,12 +72,12 @@ jobs:
 
       - id: sha-arm
         run: |
-          curl -fSL -o yolo-arm.dmg "https://github.com/chenhunghan/yolo-box/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_aarch64.dmg"
+          curl -fSL -o yolo-arm.dmg "https://github.com/chenhunghan/yolo/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_aarch64.dmg"
           echo "sha256=$(shasum -a 256 yolo-arm.dmg | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - id: sha-intel
         run: |
-          curl -fSL -o yolo-intel.dmg "https://github.com/chenhunghan/yolo-box/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_x64.dmg"
+          curl -fSL -o yolo-intel.dmg "https://github.com/chenhunghan/yolo/releases/download/v${{ steps.version.outputs.version }}/yolo_${{ steps.version.outputs.version }}_x64.dmg"
           echo "sha256=$(shasum -a 256 yolo-intel.dmg | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - env:
@@ -89,7 +89,7 @@ jobs:
         run: |
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/chenhunghan/homebrew-tap.git"
           cd homebrew-tap
-          printf 'cask "yolo" do\n  version "%s"\n\n  on_arm do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo-box/releases/download/v#{version}/yolo_#{version}_aarch64.dmg"\n  end\n\n  on_intel do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo-box/releases/download/v#{version}/yolo_#{version}_x64.dmg"\n  end\n\n  name "yolo"\n  desc "Desktop GUI for managing Lima instances and Kubernetes clusters"\n  homepage "https://github.com/chenhunghan/yolo-box"\n\n  app "yolo.app"\n\n  postflight do\n    system "xattr", "-cr", "#{appdir}/yolo.app"\n  end\nend\n' "$VERSION" "$SHA_ARM" "$SHA_INTEL" > Casks/yolo.rb
+          printf 'cask "yolo" do\n  version "%s"\n\n  on_arm do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo/releases/download/v#{version}/yolo_#{version}_aarch64.dmg"\n  end\n\n  on_intel do\n    sha256 "%s"\n    url "https://github.com/chenhunghan/yolo/releases/download/v#{version}/yolo_#{version}_x64.dmg"\n  end\n\n  name "yolo"\n  desc "Isolated Linux sandboxes for vibe coding with Claude Code"\n  homepage "https://github.com/chenhunghan/yolo"\n\n  app "yolo.app"\n\n  postflight do\n    system "xattr", "-cr", "#{appdir}/yolo.app"\n  end\nend\n' "$VERSION" "$SHA_ARM" "$SHA_INTEL" > Casks/yolo.rb
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/yolo.rb
