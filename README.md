@@ -54,6 +54,17 @@ npm run tauri dev      # development
 npm run tauri build    # production
 ```
 
+### App Icons
+
+To generate all required app icons and the macOS system tray template icon:
+
+1. Place your 1024x1024 base image at `app-icon.png` in the root directory.
+2. Run the icon generation script:
+   ```bash
+   npm run icons:generate
+   ```
+This relies on Tauri's icon generator for standard icons and a custom `scripts/convert.ts` script to generate a proper template image for the macOS menu bar.
+
 ## License
 
 Copyright © 2025 Hung-Han Chen <chenhungh@gmail.com>.
