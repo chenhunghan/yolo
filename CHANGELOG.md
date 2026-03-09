@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/chenhunghan/yolo/compare/v0.2.0...v0.3.0) (2026-03-09)
+
+
+### Features
+
+* update app icon ([079d408](https://github.com/chenhunghan/yolo/commit/079d4086df038b3d7db3e71d1d5235a0404ae95f))
+
 ## [0.2.0](https://github.com/chenhunghan/yolo/compare/v0.1.0...v0.2.0) (2026-03-09)
 
 
