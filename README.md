@@ -56,14 +56,24 @@ npm run tauri build    # production
 
 ### App Icons
 
-To generate all required app icons and the macOS system tray template icon:
+macOS app icons must follow [Apple's Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/app-icons). Since macOS does not auto-apply the icon mask for non-App Store apps, the squircle shape must be baked into the icon itself.
 
-1. Place your 1024x1024 base image at `app-icon.png` in the root directory.
-2. Run the icon generation script:
+**Apple icon spec (1024×1024 canvas):**
+- Icon body: **824×824**, centered (100px padding on each side)
+- Corner radius: **185.4px** with **continuous curvature** (Bézier squircle, not circular arcs)
+
+**Steps:**
+
+1. Design your icon content to fit within an 824×824 area.
+2. Apply the Apple squircle mask (with transparent corners) and center it on a 1024×1024 transparent canvas. You can use `sharp` or any image editor with the specs above.
+3. Save the masked result as `app-icon.png` in the project root.
+4. Generate all platform icons and the macOS menu bar template icon:
    ```bash
+   npx tauri icon app-icon.png
    npm run icons:generate
    ```
-This relies on Tauri's icon generator for standard icons and a custom `scripts/convert.ts` script to generate a proper template image for the macOS menu bar.
+
+`tauri icon` generates standard icons (icns, ico, PNG, iOS, Android). The `icons:generate` script (`scripts/convert.ts`) additionally creates the macOS menu bar template image.
 
 ## License
 
