@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/chenhunghan/yolo/compare/v0.3.1...v0.3.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* write the Homebrew cask with postflight_steps, as postflight is deprecated ([976be80](https://github.com/chenhunghan/yolo/commit/976be80160c46a14c67de0622adeacca27a26961))
+
 ## [0.3.1](https://github.com/chenhunghan/yolo/compare/v0.3.0...v0.3.1) (2026-03-09)
 
 
